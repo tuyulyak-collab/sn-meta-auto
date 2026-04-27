@@ -24,8 +24,11 @@ Given a title and a candidate keyword list, you return:
 You are a relevance & competition helper. You DO NOT predict sales or downloads.
 You always return strict JSON. Never include prose outside the JSON.`;
 
-function buildUserPrompt({ title, keywords, contentType, locale }) {
+function buildUserPrompt({ title, keywords, contentType, locale, singleWordOnly }) {
   const kwBlock = keywords.map((k, i) => `${i + 1}. ${k}`).join("\n");
+  const suggestionRule = singleWordOnly
+    ? '- Suggested keywords MUST be SINGLE WORDS (no spaces, no multi-word phrases).'
+    : '- Suggested keywords may be single words or 2-3 word phrases (long-tail keywords are good).';
   return `Title: ${title || "(none)"}
 Content type: ${contentType || "vector"}
 Locale: ${locale || "en_US"}
@@ -45,6 +48,7 @@ Rules:
 - Always return ALL keywords from the input in the "scored" array, in the same order.
 - "competition" reflects saturation on Adobe Stock — generic single words are usually "high".
 - Suggested keywords must be NEW (not in input), specific, and buyer-relevant.
+${suggestionRule}
 - Output ONLY the JSON object, no markdown, no commentary.`;
 }
 
@@ -197,8 +201,10 @@ export default async function handler(req) {
     process.env.LLM_MODEL ||
     (provider === "gemini" ? "gemini-1.5-flash" : "llama-3.3-70b-versatile");
 
+  const singleWordOnly = !!(body && body.singleWordOnly);
+
   const system = SYSTEM_PROMPT;
-  const user = buildUserPrompt({ title, keywords, contentType, locale });
+  const user = buildUserPrompt({ title, keywords, contentType, locale, singleWordOnly });
 
   let text;
   try {
@@ -238,11 +244,17 @@ export default async function handler(req) {
     return { keyword: kw, relevance, competition, reason };
   });
 
-  const suggested = suggestedIn
+  let suggested = suggestedIn
     .filter((s) => typeof s === "string")
     .map((s) => s.trim())
-    .filter((s) => s.length > 0 && s.length <= 60)
-    .slice(0, 12);
+    .filter((s) => s.length > 0 && s.length <= 60);
+
+  // Defense-in-depth: even if the LLM ignored the singleWordOnly instruction,
+  // strip any multi-word entries before returning.
+  if (singleWordOnly) {
+    suggested = suggested.filter((s) => !/\s/.test(s));
+  }
+  suggested = suggested.slice(0, 12);
 
   return jsonResponse(200, {
     ok: true,

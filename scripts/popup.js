@@ -13,6 +13,7 @@
     topPriority: 10,
     backendUrl: "",
     apiMode: "local",
+    singleWordOnly: false,
   };
 
   const ADOBE_STOCK_HOST_PATTERN = /(^|\.)stock\.adobe\.com$/i;
@@ -259,6 +260,7 @@
             keywords: scan.keywords,
             contentType: state.settings.defaultContentType,
             locale: state.settings.defaultLocale,
+            singleWordOnly: !!state.settings.singleWordOnly,
           });
           result = mergeLLMIntoLocal(result, llm);
           usedBackend = true;
@@ -485,6 +487,7 @@
             keywords: parsed,
             contentType: input.contentType,
             locale: input.locale,
+            singleWordOnly: !!state.settings.singleWordOnly,
           });
           result = mergeLLMIntoLocal(result, llm);
           usedBackend = true;
@@ -594,6 +597,8 @@
     document.getElementById("settings-max").value = s.maxKeywords;
     document.getElementById("settings-top").value = s.topPriority;
     document.getElementById("settings-api-url").value = s.backendUrl || "";
+    const swEl = document.getElementById("settings-single-word");
+    if (swEl) swEl.checked = !!s.singleWordOnly;
     document
       .querySelectorAll('input[name="api-mode"]')
       .forEach((r) => (r.checked = r.value === s.apiMode));
@@ -621,6 +626,7 @@
       topPriority: clampInt(document.getElementById("settings-top").value, 1, 49, 10),
       backendUrl: document.getElementById("settings-api-url").value.trim(),
       apiMode: apiModeEl ? apiModeEl.value : "local",
+      singleWordOnly: !!document.getElementById("settings-single-word").checked,
     };
   }
 
