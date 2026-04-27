@@ -234,7 +234,7 @@
     applyBtn.disabled = !(state.currentPage.analysis && state.currentPage.analysis.finalKeywords && state.currentPage.analysis.finalKeywords.length > 0);
   }
 
-  function analyzeCurrent() {
+  async function analyzeCurrent() {
     const scan = state.currentPage.scanned;
     if (!scan || !scan.keywords || scan.keywords.length === 0) {
       toast("Scan a page first.", "error");
@@ -242,7 +242,7 @@
     }
     setLoading("btn-analyze-current", true);
     try {
-      const result = SNScoring.analyzeKeywords({
+      let result = SNScoring.analyzeKeywords({
         title: scan.title || "",
         keywords: scan.keywords,
         contentType: state.settings.defaultContentType,
@@ -250,6 +250,26 @@
         targetCount: state.settings.maxKeywords,
         topCount: state.settings.topPriority,
       });
+
+      let usedBackend = false;
+      if (backendActive()) {
+        try {
+          const llm = await callBackend({
+            title: scan.title || "",
+            keywords: scan.keywords,
+            contentType: state.settings.defaultContentType,
+            locale: state.settings.defaultLocale,
+          });
+          result = mergeLLMIntoLocal(result, llm);
+          usedBackend = true;
+        } catch (be) {
+          toast(
+            "Backend unavailable, using local heuristic. " + (be && be.message ? be.message : ""),
+            "info"
+          );
+        }
+      }
+
       state.currentPage.analysis = result;
       renderAnalysis(
         document.getElementById("current-results-area"),
@@ -262,7 +282,14 @@
       const empty = document.getElementById("current-empty");
       empty.hidden = true;
       updateCurrentButtonsEnabled();
-      toast("Analyzed " + result.meta.totalInput + " keywords.", "success");
+      toast(
+        "Analyzed " +
+          result.meta.totalInput +
+          " keywords" +
+          (usedBackend ? " (LLM-enhanced)" : "") +
+          ".",
+        "success"
+      );
     } catch (e) {
       toast("Analysis failed: " + (e && e.message), "error");
     } finally {
@@ -298,6 +325,128 @@
     }
   }
 
+  // ---------- Backend (LLM) integration ----------
+  function backendActive() {
+    const url = (state.settings.backendUrl || "").trim();
+    return state.settings.apiMode === "backend" && /^https?:\/\//i.test(url);
+  }
+
+  function backendUrl() {
+    return (state.settings.backendUrl || "").trim().replace(/\/+$/, "");
+  }
+
+  async function callBackend(payload) {
+    const url = backendUrl() + "/api/analyze";
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: ctrl.signal,
+      });
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (e) {
+        throw new Error("backend returned non-JSON: " + text.slice(0, 120));
+      }
+      if (!res.ok || !json || json.ok === false) {
+        throw new Error((json && json.error) || "backend error " + res.status);
+      }
+      return json;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  // Merge LLM scoring into a local-heuristic analysis result. The local
+  // pipeline still drives status (top/support/remove/duplicate/too_generic),
+  // but each entry gets enriched with llmRelevance + competition + llmReason.
+  // We then re-rank the survivors by a blended score so LLM relevance moves
+  // truly relevant keywords to the top.
+  function mergeLLMIntoLocal(localResult, llmData) {
+    if (!llmData || !Array.isArray(llmData.scored)) return localResult;
+    const map = new Map();
+    llmData.scored.forEach((s) => {
+      if (!s || typeof s.keyword !== "string") return;
+      map.set(s.keyword.toLowerCase().trim(), s);
+    });
+
+    const enriched = localResult.ranked.map((r) => {
+      const m = map.get(String(r.keyword).toLowerCase().trim());
+      if (!m) return { ...r };
+      const llmRelevance = numOrNull(m.relevance);
+      const competition = ["low", "medium", "high"].includes(m.competition)
+        ? m.competition
+        : null;
+      const blend =
+        llmRelevance == null
+          ? r.score
+          : Math.round(r.score * 0.5 + llmRelevance * 0.5);
+      return {
+        ...r,
+        llmRelevance,
+        competition,
+        llmReason: typeof m.reason === "string" ? m.reason : "",
+        blendedScore: blend,
+      };
+    });
+
+    // Re-rank survivors (top + support) by blended score; keep duplicates /
+    // too_generic / remove at the bottom in their original order.
+    const survivors = enriched.filter((e) => e.status === "top" || e.status === "support");
+    const others = enriched.filter((e) => e.status !== "top" && e.status !== "support");
+
+    survivors.sort((a, b) => {
+      const sa = a.blendedScore != null ? a.blendedScore : a.score;
+      const sb = b.blendedScore != null ? b.blendedScore : b.score;
+      if (sb !== sa) return sb - sa;
+      // Tie-break: lower competition first.
+      const ca = compRank(a.competition);
+      const cb = compRank(b.competition);
+      return ca - cb;
+    });
+
+    const topCount = state.settings.topPriority || 10;
+    const ranked = [];
+    survivors.forEach((e, i) => {
+      const status = i < topCount ? "top" : "support";
+      ranked.push({ ...e, rank: i + 1, status });
+    });
+    others.forEach((e) => ranked.push({ ...e }));
+
+    const finalKeywords = survivors.map((e) => e.keyword);
+    const topKeywords = finalKeywords.slice(0, topCount);
+
+    const suggested = Array.isArray(llmData.suggested)
+      ? llmData.suggested.filter((s) => typeof s === "string" && s.trim()).slice(0, 12)
+      : [];
+
+    return {
+      ...localResult,
+      ranked,
+      topKeywords,
+      finalKeywords,
+      suggestedKeywords: suggested,
+      llm: { provider: llmData.provider, model: llmData.model },
+    };
+  }
+
+  function numOrNull(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function compRank(c) {
+    if (c === "low") return 0;
+    if (c === "medium") return 1;
+    if (c === "high") return 2;
+    return 1.5;
+  }
+
   // ---------- Manual mode ----------
   function readManualInputs() {
     return {
@@ -310,7 +459,7 @@
     };
   }
 
-  function analyzeManual() {
+  async function analyzeManual() {
     const input = readManualInputs();
     const parsed = SNScoring.parseKeywords(input.keywordsRaw);
     if (parsed.length === 0) {
@@ -319,7 +468,7 @@
     }
     setLoading("btn-manual-analyze", true);
     try {
-      const result = SNScoring.analyzeKeywords({
+      let result = SNScoring.analyzeKeywords({
         title: input.title,
         keywords: parsed,
         contentType: input.contentType,
@@ -327,6 +476,26 @@
         targetCount: input.targetCount,
         topCount: input.topCount,
       });
+
+      let usedBackend = false;
+      if (backendActive()) {
+        try {
+          const llm = await callBackend({
+            title: input.title,
+            keywords: parsed,
+            contentType: input.contentType,
+            locale: input.locale,
+          });
+          result = mergeLLMIntoLocal(result, llm);
+          usedBackend = true;
+        } catch (be) {
+          toast(
+            "Backend unavailable, using local heuristic. " + (be && be.message ? be.message : ""),
+            "info"
+          );
+        }
+      }
+
       state.manual.analysis = result;
       renderAnalysis(
         document.getElementById("manual-results-area"),
@@ -336,7 +505,14 @@
       );
       const card = document.getElementById("manual-results-card");
       card.hidden = false;
-      toast("Analyzed " + result.meta.totalInput + " keywords.", "success");
+      toast(
+        "Analyzed " +
+          result.meta.totalInput +
+          " keywords" +
+          (usedBackend ? " (LLM-enhanced)" : "") +
+          ".",
+        "success"
+      );
     } catch (e) {
       toast("Analysis failed: " + (e && e.message), "error");
     } finally {
@@ -426,6 +602,14 @@
     document.getElementById("manual-locale").value = s.defaultLocale;
     document.getElementById("manual-target").value = s.maxKeywords;
     document.getElementById("manual-top").value = s.topPriority;
+
+    updateModePill();
+  }
+
+  function updateModePill() {
+    const pill = document.getElementById("mode-pill");
+    if (!pill) return;
+    pill.hidden = !backendActive();
   }
 
   function readSettingsInputs() {
@@ -496,25 +680,56 @@
       );
     }
 
+    if (result.suggestedKeywords && result.suggestedKeywords.length > 0) {
+      rootEl.appendChild(
+        buildBlock(
+          "suggested",
+          "Suggested Keywords (" + result.suggestedKeywords.length + ") — from LLM",
+          result.suggestedKeywords.join(", "),
+          [
+            { label: "Copy Suggestions", value: result.suggestedKeywords.join(", ") },
+            {
+              label: "Append to Keywords",
+              value: result.suggestedKeywords.join(", "),
+              action: (val) => {
+                const ta = document.getElementById("manual-keywords");
+                if (!ta) return;
+                const existing = ta.value.trim();
+                ta.value = existing ? existing + ", " + val : val;
+                toast("Appended " + result.suggestedKeywords.length + " suggestions.", "success");
+              },
+            },
+          ]
+        )
+      );
+    }
+
     rootEl.appendChild(buildNotesBlock(result.notes));
   }
 
   function buildResultsTable(result) {
     const wrap = document.createElement("div");
+    const hasLLM = !!(result.llm && result.ranked.some((r) => r.competition || r.llmRelevance != null));
     const table = document.createElement("table");
     table.className = "results-table";
-    table.innerHTML =
+    let head =
       "<thead><tr>" +
       '<th class="col-rank">#</th>' +
       "<th>Keyword</th>" +
-      '<th class="col-score">Score</th>' +
+      '<th class="col-score">Score</th>';
+    if (hasLLM) {
+      head += '<th class="col-comp">Comp.</th>';
+    }
+    head +=
       '<th class="col-status">Status</th>' +
       '<th class="col-reason">Reason</th>' +
       "</tr></thead>";
+    table.innerHTML = head;
     const tbody = document.createElement("tbody");
     result.ranked.forEach((r) => {
       const tr = document.createElement("tr");
-      tr.innerHTML =
+      const reasonText = combineLocalLlmReason(r.reason, r.llmReason);
+      let row =
         '<td class="col-rank">' +
         (r.rank == null ? "—" : r.rank) +
         "</td>" +
@@ -522,19 +737,38 @@
         escapeHtml(r.keyword) +
         "</td>" +
         '<td class="col-score">' +
-        r.score +
-        "</td>" +
+        (r.blendedScore != null ? r.blendedScore : r.score) +
+        "</td>";
+      if (hasLLM) {
+        row += '<td class="col-comp">' + competitionBadgeHtml(r.competition) + "</td>";
+      }
+      row +=
         '<td class="col-status">' +
         statusBadgeHtml(r.status) +
         "</td>" +
         '<td class="col-reason">' +
-        escapeHtml(r.reason || "") +
+        escapeHtml(reasonText) +
         "</td>";
+      tr.innerHTML = row;
       tbody.appendChild(tr);
     });
     table.appendChild(tbody);
     wrap.appendChild(table);
     return wrap;
+  }
+
+  function combineLocalLlmReason(local, llm) {
+    const a = (local || "").trim();
+    const b = (llm || "").trim();
+    if (a && b) return a + " • LLM: " + b;
+    return a || b || "";
+  }
+
+  function competitionBadgeHtml(c) {
+    if (c === "low") return '<span class="badge badge-comp-low">Low</span>';
+    if (c === "medium") return '<span class="badge badge-comp-med">Medium</span>';
+    if (c === "high") return '<span class="badge badge-comp-high">High</span>';
+    return '<span class="badge badge-comp-na">—</span>';
   }
 
   function buildBlock(kind, title, kwLine, copyButtons) {
@@ -558,6 +792,10 @@
         btn.type = "button";
         btn.textContent = b.label;
         btn.addEventListener("click", () => {
+          if (typeof b.action === "function") {
+            b.action(b.value);
+            return;
+          }
           if (!b.value) {
             toast("Nothing to copy.", "error");
             return;
