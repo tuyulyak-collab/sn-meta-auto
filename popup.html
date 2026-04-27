@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SN Stock Keyword Optimizer</title>
+    <link rel="stylesheet" href="styles/popup.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="logo-block">
+          <div class="logo-mark" aria-hidden="true">SN</div>
+          <div class="logo-text">
+            <h1>SN Stock Keyword Optimizer</h1>
+            <p class="subtitle">Adobe Stock Keyword Optimizer</p>
+          </div>
+        </div>
+        <div class="header-badge" title="This is a relevance &amp; competition helper, not a sales predictor.">
+          relevance helper
+        </div>
+      </header>
+
+      <nav class="tabs" role="tablist">
+        <button class="tab active" role="tab" aria-selected="true" data-tab="current">
+          Current Page
+        </button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="manual">
+          Manual Analyzer
+        </button>
+        <button class="tab" role="tab" aria-selected="false" data-tab="settings">
+          Settings
+        </button>
+      </nav>
+
+      <main class="content">
+        <!-- ============ CURRENT PAGE TAB ============ -->
+        <section class="tab-panel active" id="tab-current" role="tabpanel">
+          <div class="card card-status">
+            <div class="card-header">
+              <span class="card-title">Page Detection</span>
+            </div>
+            <div class="status-row">
+              <span class="status-dot" id="page-status-dot"></span>
+              <span class="status-text" id="page-status-text">Checking current tab…</span>
+            </div>
+            <div class="meta-row" id="page-meta">
+              <div class="meta-item">
+                <span class="meta-label">Detected title</span>
+                <span class="meta-value" id="detected-title">—</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Keyword count</span>
+                <span class="meta-value" id="detected-count">0</span>
+              </div>
+            </div>
+            <div class="button-row">
+              <button class="btn btn-primary" id="btn-scan">Scan Page Keywords</button>
+              <button class="btn btn-secondary" id="btn-analyze-current" disabled>
+                Analyze &amp; Reorder
+              </button>
+              <button class="btn btn-success" id="btn-apply-current" disabled>
+                Apply to Adobe Stock Page
+              </button>
+            </div>
+          </div>
+
+          <div class="card" id="current-results-card" hidden>
+            <div class="card-header">
+              <span class="card-title">Detected Keywords</span>
+              <span class="pill pill-info" id="current-result-summary"></span>
+            </div>
+            <div class="results-area" id="current-results-area"></div>
+          </div>
+
+          <div class="card empty-card" id="current-empty">
+            <p>Click <strong>Scan Page Keywords</strong> to detect the current keywords on the Adobe Stock contributor page.</p>
+            <p class="muted">If detection fails, switch to the <strong>Manual Analyzer</strong> tab.</p>
+          </div>
+        </section>
+
+        <!-- ============ MANUAL ANALYZER TAB ============ -->
+        <section class="tab-panel" id="tab-manual" role="tabpanel">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Inputs</span>
+            </div>
+
+            <label class="field-label" for="manual-title">Title</label>
+            <input
+              class="field-input"
+              id="manual-title"
+              type="text"
+              placeholder="e.g. Cute cartoon cat sitting on a colorful pillow"
+            />
+
+            <label class="field-label" for="manual-keywords">Keywords</label>
+            <textarea
+              class="field-textarea"
+              id="manual-keywords"
+              rows="6"
+              placeholder="Paste keywords separated by commas, semicolons, or new lines"
+            ></textarea>
+
+            <div class="grid-2">
+              <div>
+                <label class="field-label" for="manual-content-type">Content Type</label>
+                <select class="field-input" id="manual-content-type">
+                  <option value="vector">Vector</option>
+                  <option value="illustration">Illustration</option>
+                  <option value="photo">Photo</option>
+                  <option value="png">PNG / Transparent</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="manual-locale">Locale</label>
+                <select class="field-input" id="manual-locale">
+                  <option value="en_US">en_US</option>
+                  <option value="en_GB">en_GB</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="manual-target">Target Keyword Count</label>
+                <input class="field-input" id="manual-target" type="number" min="1" max="49" value="49" />
+              </div>
+              <div>
+                <label class="field-label" for="manual-top">Top Priority Count</label>
+                <input class="field-input" id="manual-top" type="number" min="1" max="49" value="10" />
+              </div>
+            </div>
+
+            <div class="button-row">
+              <button class="btn btn-primary" id="btn-manual-analyze">Analyze Keywords</button>
+              <button class="btn btn-secondary" id="btn-manual-reorder">Reorder Top 49</button>
+              <button class="btn btn-secondary" id="btn-manual-copy">Copy Keywords</button>
+              <button class="btn btn-secondary" id="btn-manual-export">Export CSV</button>
+              <button class="btn btn-danger" id="btn-manual-clear">Clear</button>
+            </div>
+          </div>
+
+          <div class="card" id="manual-results-card" hidden>
+            <div class="card-header">
+              <span class="card-title">Analysis</span>
+              <span class="pill pill-info" id="manual-result-summary"></span>
+            </div>
+            <div class="results-area" id="manual-results-area"></div>
+          </div>
+        </section>
+
+        <!-- ============ SETTINGS TAB ============ -->
+        <section class="tab-panel" id="tab-settings" role="tabpanel">
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">Defaults</span>
+            </div>
+            <div class="grid-2">
+              <div>
+                <label class="field-label" for="settings-locale">Default Locale</label>
+                <select class="field-input" id="settings-locale">
+                  <option value="en_US">en_US</option>
+                  <option value="en_GB">en_GB</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="settings-content-type">Default Content Type</label>
+                <select class="field-input" id="settings-content-type">
+                  <option value="vector">Vector</option>
+                  <option value="illustration">Illustration</option>
+                  <option value="photo">Photo</option>
+                  <option value="png">PNG / Transparent</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label" for="settings-max">Max Keywords</label>
+                <input class="field-input" id="settings-max" type="number" min="1" max="49" value="49" />
+              </div>
+              <div>
+                <label class="field-label" for="settings-top">Top Priority Keywords</label>
+                <input class="field-input" id="settings-top" type="number" min="1" max="49" value="10" />
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <span class="card-title">API Mode</span>
+            </div>
+            <div class="api-mode-row">
+              <label class="radio-row">
+                <input type="radio" name="api-mode" value="local" checked />
+                <span>Local Heuristic Mode</span>
+              </label>
+              <label class="radio-row">
+                <input type="radio" name="api-mode" value="backend" />
+                <span>Backend API Mode</span>
+              </label>
+            </div>
+            <label class="field-label" for="settings-api-url">Backend API URL (optional)</label>
+            <input
+              class="field-input"
+              id="settings-api-url"
+              type="text"
+              placeholder="https://your-backend.example.com/api/score"
+            />
+            <p class="muted small">
+              Backend API mode is a placeholder. If no URL is set, the extension stays in local mode.
+            </p>
+          </div>
+
+          <div class="button-row">
+            <button class="btn btn-primary" id="btn-settings-save">Save Settings</button>
+            <button class="btn btn-secondary" id="btn-settings-reset">Reset to Defaults</button>
+          </div>
+
+          <div class="card disclaimer-card">
+            <p>
+              <strong>Disclaimer:</strong> SN Stock Keyword Optimizer is a
+              <strong>keyword relevance &amp; competition helper</strong>. It does not predict sales,
+              downloads, or revenue.
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <div class="toast-stack" id="toast-stack" aria-live="polite" aria-atomic="true"></div>
+    </div>
+
+    <script src="scripts/scoring.js"></script>
+    <script src="scripts/popup.js"></script>
+  </body>
+</html>
