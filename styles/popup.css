@@ -463,6 +463,37 @@ body {
   color: var(--text);
 }
 
+.badge-comp-low {
+  background: var(--green);
+  color: var(--text);
+}
+
+.badge-comp-med {
+  background: var(--secondary);
+  color: var(--text);
+}
+
+.badge-comp-high {
+  background: var(--pink);
+  color: var(--text);
+}
+
+.badge-comp-na {
+  background: #eee;
+  color: var(--muted);
+}
+
+.header-pills {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-end;
+}
+
+.mode-pill {
+  background: var(--green);
+}
+
 /* ===== RESULTS / TABLE ===== */
 .results-area {
   display: flex;
@@ -517,6 +548,10 @@ body {
   width: 88px;
 }
 
+.results-table .col-comp {
+  width: 64px;
+}
+
 .results-table .col-reason {
   color: var(--muted);
   font-size: 11px;
@@ -540,6 +575,10 @@ body {
 }
 .result-block.notes {
   background: var(--pastel-lavender);
+}
+
+.result-block.suggested {
+  background: var(--pastel-mint);
 }
 
 .result-block h4 {

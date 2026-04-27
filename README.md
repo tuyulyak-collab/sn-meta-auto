@@ -71,10 +71,12 @@ A colorful table with `Rank`, `Keyword`, `Score`, `Status`, `Reason`. Status bad
 - Default content type (Vector / Illustration / Photo / PNG)
 - Max keywords (default 49)
 - Top priority keywords (default 10)
-- Backend API URL (optional; placeholder for future use)
+- Backend API URL (optional; for LLM-enhanced scoring)
 - API mode toggle: **Local Heuristic Mode** / **Backend API Mode**
 
-If Backend API Mode is selected without a URL, the extension falls back to local mode automatically.
+If **Backend API Mode** is selected and a backend URL is set, the extension calls the backend during analysis to get LLM-driven relevance scores, a competition tier per keyword (low / medium / high), and a list of suggested niche keywords. The local heuristic still runs as a fallback — if the backend is unreachable or returns an error, analysis silently falls back to local-only with a toast notice.
+
+See [`backend/README.md`](backend/README.md) for instructions to deploy the optional backend on Vercel using either **Google Gemini** or **Groq** (both have generous free tiers, no credit card needed).
 
 ---
 
@@ -102,6 +104,11 @@ sn-stock-keyword-optimizer/
 │   ├── contentScript.js   # Adobe Stock page detection / scan / apply
 │   └── background.js      # MV3 service worker (messaging)
 ├── icons/                 # 16 / 32 / 48 / 128 px icons
+├── backend/               # Optional Vercel serverless backend (Gemini / Groq)
+│   ├── api/analyze.js     # POST /api/analyze — LLM scoring + suggestions
+│   ├── vercel.json
+│   ├── package.json
+│   └── README.md          # Deploy instructions
 └── README.md
 ```
 
@@ -109,11 +116,10 @@ sn-stock-keyword-optimizer/
 
 ## Privacy
 
-- All scoring happens **locally** in the popup.
-- No keywords or page content are sent to any server.
+- In **Local Heuristic Mode** (default), all scoring happens locally in the popup; no keywords or page content are sent to any server.
+- In **Backend API Mode**, the extension sends `{ title, keywords, contentType, locale }` to **your own backend URL** so the backend can call the LLM provider you configured. No third party other than the LLM provider you choose ever sees the data.
 - Settings are stored in `chrome.storage.local`.
 - The extension never auto-submits Adobe Stock forms or clicks any submit button.
-- Backend API mode is currently a placeholder; without a URL set, no network requests are made.
 
 ---
 

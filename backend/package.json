@@ -1,0 +1,15 @@
+{
+  "name": "sn-stock-keyword-optimizer-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vercel serverless backend (Gemini / Groq) for SN Stock Keyword Optimizer",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel deploy --prod"
+  },
+  "dependencies": {}
+}
