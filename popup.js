@@ -10,6 +10,7 @@ const UI = {
   scannedMedia: [],
   scannedSelection: new Set(),
   busyButtons: new Set(),
+  lastState: null, // last rendered state — used by applyButtonStates after lock release
 };
 
 // Re-usable senders
@@ -32,17 +33,39 @@ function toast(text, ms = 1800) {
 }
 
 // ---- anti-double-click lock ----
+// withLock tracks which buttons are mid-flight in UI.busyButtons. The actual
+// disabled state is always derived from the application state in
+// applyButtonStates so we never override state-driven rules
+// (e.g. btnStart should stay disabled while state.isRunning is true).
 function withLock(btn, fn) {
   return async (...args) => {
     if (UI.busyButtons.has(btn)) { toast("Process already running"); return; }
     UI.busyButtons.add(btn);
-    btn.disabled = true;
+    applyButtonStates();
     try { await fn(...args); }
     finally {
       UI.busyButtons.delete(btn);
-      btn.disabled = false;
+      applyButtonStates();
     }
   };
+}
+
+// Single source of truth for button disabled states. Reads from UI.lastState
+// (set by renderState) plus UI.busyButtons.
+function applyButtonStates() {
+  const s = UI.lastState || {};
+  const start = $("#btnStart");
+  const stop = $("#btnStop");
+  const resume = $("#btnResume");
+  if (start) start.disabled = !!s.isRunning || UI.busyButtons.has(start);
+  if (stop) stop.disabled = !s.isRunning || UI.busyButtons.has(stop);
+  if (resume) resume.disabled = !!s.isRunning || !s.isPaused || UI.busyButtons.has(resume);
+  // Buttons without state-driven disabled rules: only block during in-flight call.
+  ["#btnReset", "#btnRetryFailed", "#btnScanMedia", "#btnDownloadSelected", "#btnDownloadAll"]
+    .forEach((sel) => {
+      const el = $(sel);
+      if (el) el.disabled = UI.busyButtons.has(el);
+    });
 }
 
 // ---- rendering ----
@@ -148,9 +171,8 @@ function renderState(state) {
   });
 
   // controls disabled states
-  $("#btnStart").disabled = state.isRunning;
-  $("#btnStop").disabled = !state.isRunning;
-  $("#btnResume").disabled = state.isRunning || !state.isPaused;
+  UI.lastState = state;
+  applyButtonStates();
 }
 
 function countsOf(queue) {
@@ -230,10 +252,10 @@ async function saveSettingsPartial(partial) {
 }
 
 async function savePromptTextDraft(text) {
-  const st = await getState();
-  await new Promise((resolve) =>
-    chrome.storage.local.set({ sn_state: Object.assign({}, st, { promptText: text }) }, resolve)
-  );
+  // Route through background to serialize all sn_state writes through the
+  // service worker's saveState. Avoids cross-process read-modify-write races
+  // that would otherwise clobber concurrent queue progress updates.
+  await send({ type: "SAVE_PROMPT_TEXT", promptText: String(text || "") });
 }
 
 // ---- mode + tab switching ----
@@ -423,18 +445,17 @@ async function init() {
     else toast(res.error || "Download failed");
   }));
 
-  // Logs / history
+  // Logs / history — route through background so all sn_state writes are
+  // serialized in the service worker (no cross-process race with queue updates).
   $("#btnClearLogs").addEventListener("click", async () => {
-    const st = await getState();
-    st.logs = [];
-    await new Promise((r) => chrome.storage.local.set({ sn_state: st }, r));
-    renderLogs([]);
+    const res = await send({ type: "CLEAR_LOGS" });
+    if (res.ok) renderLogs([]);
+    else toast(res.error || "Clear logs failed");
   });
   $("#btnClearHistory").addEventListener("click", async () => {
-    const st = await getState();
-    st.history = [];
-    await new Promise((r) => chrome.storage.local.set({ sn_state: st }, r));
-    renderHistory([]);
+    const res = await send({ type: "CLEAR_HISTORY" });
+    if (res.ok) renderHistory([]);
+    else toast(res.error || "Clear history failed");
   });
 
   // Live updates

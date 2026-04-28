@@ -371,6 +371,25 @@ async function handleScanMediaForPopup() {
   return res;
 }
 
+async function handleSavePromptText({ promptText }) {
+  // Single-process write through saveState so concurrent queue progress
+  // updates from the run loop don't get clobbered by popup keystrokes.
+  await S.saveState({ promptText: String(promptText == null ? "" : promptText) });
+  return { ok: true };
+}
+
+async function handleClearLogs() {
+  await S.saveState({ logs: [] });
+  broadcast({ type: "STATE_UPDATED" });
+  return { ok: true };
+}
+
+async function handleClearHistory() {
+  await S.saveState({ history: [] });
+  broadcast({ type: "STATE_UPDATED" });
+  return { ok: true };
+}
+
 async function handleDownloadMedia({ items, settings }) {
   const st = settings || (await S.getSettings());
   let ok = 0, fail = 0;
@@ -404,6 +423,9 @@ const HANDLERS = {
   ITEM_ACTION: handleItemAction,
   SCAN_MEDIA_POPUP: handleScanMediaForPopup,
   DOWNLOAD_MEDIA: handleDownloadMedia,
+  SAVE_PROMPT_TEXT: handleSavePromptText,
+  CLEAR_LOGS: handleClearLogs,
+  CLEAR_HISTORY: handleClearHistory,
 };
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
