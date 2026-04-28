@@ -24,6 +24,22 @@ const RT = {
   currentTabId: null,
 };
 
+// Tracks the in-flight runLoop() promise so handleReset can await it
+// before clearing the queue. This prevents (a) two concurrent runLoop
+// instances and (b) processOne mid-flight clobbering the cleared
+// queue back into storage via S.saveState.
+let runLoopPromise = null;
+
+function startRunLoop() {
+  if (runLoopPromise) return runLoopPromise;
+  runLoopPromise = (async () => {
+    try { await runLoop(); }
+    catch (e) { console.error("[SN Meta Auto bg] runLoop crashed", e); }
+    finally { runLoopPromise = null; }
+  })();
+  return runLoopPromise;
+}
+
 function now() { return new Date().toISOString().slice(11, 19); }
 
 async function log(msg) {
@@ -282,7 +298,7 @@ async function handleStart() {
   if (RT.running) return { ok: false, error: "Process already running" };
   await S.saveState({ isRunning: true, isPaused: false, startedAt: Date.now() });
   await log("Start pressed");
-  runLoop();
+  startRunLoop();
   return { ok: true };
 }
 
@@ -297,11 +313,24 @@ async function handleResume() {
   if (RT.running) return { ok: false, error: "Process already running" };
   await S.saveState({ isPaused: false, isRunning: true });
   await log("Resume pressed");
-  runLoop();
+  startRunLoop();
   return { ok: true };
 }
 
 async function handleReset() {
+  // If a runLoop is mid-flight, signal it to stop and wait for it to
+  // finish before clearing storage. This prevents two issues:
+  //   1. Duplicate concurrent runLoops if the user clicks Start right
+  //      after Reset (the old loop's finally would later clear
+  //      RT.running, dropping the guard for the new loop).
+  //   2. processOne in the old loop clobbering the cleared queue back
+  //      into storage via S.saveState (which merges into current state).
+  // Do NOT touch RT.running here — the loop's finally block owns it.
+  if (runLoopPromise) {
+    RT.stopRequested = true;
+    await log("Reset pressed — waiting for current item to finish...");
+    try { await runLoopPromise; } catch (_) { /* loop's finally still ran */ }
+  }
   await S.saveState({
     queue: [],
     currentIndex: -1,
@@ -311,8 +340,6 @@ async function handleReset() {
     failedCount: 0,
     lastError: null,
   });
-  RT.stopRequested = false;
-  RT.running = false;
   await log("Queue reset");
   broadcast({ type: "STATE_UPDATED" });
   return { ok: true };
