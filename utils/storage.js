@@ -36,21 +36,32 @@
   };
 
   function getLocal(keys) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       try {
-        chrome.storage.local.get(keys, (res) => resolve(res || {}));
+        chrome.storage.local.get(keys, (res) => {
+          const err = chrome.runtime && chrome.runtime.lastError;
+          if (err) return reject(new Error(err.message || String(err)));
+          resolve(res || {});
+        });
       } catch (e) {
-        resolve({});
+        reject(e);
       }
     });
   }
 
   function setLocal(obj) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       try {
-        chrome.storage.local.set(obj, () => resolve());
+        chrome.storage.local.set(obj, () => {
+          // Surface chrome.storage.local errors (e.g. QUOTA_BYTES exceeded
+          // when an I2V queue holds many base64 image data URLs). Silent
+          // success here would let progress, logs, and history be lost.
+          const err = chrome.runtime && chrome.runtime.lastError;
+          if (err) return reject(new Error(err.message || String(err)));
+          resolve();
+        });
       } catch (e) {
-        resolve();
+        reject(e);
       }
     });
   }
@@ -93,12 +104,18 @@
   }
 
   async function appendLog(msg) {
-    const state = await getState();
-    const ts = new Date().toTimeString().slice(0, 8);
-    const entry = { ts, msg: String(msg || "") };
-    const logs = (state.logs || []).concat(entry).slice(-50);
-    await saveState({ logs });
-    return entry;
+    // Logging must never crash the run loop on a transient storage error.
+    try {
+      const state = await getState();
+      const ts = new Date().toTimeString().slice(0, 8);
+      const entry = { ts, msg: String(msg || "") };
+      const logs = (state.logs || []).concat(entry).slice(-50);
+      await saveState({ logs });
+      return entry;
+    } catch (e) {
+      try { console.warn("[SN Meta Auto] appendLog failed", e); } catch (_) {}
+      return null;
+    }
   }
 
   async function addHistory(record) {

@@ -86,6 +86,14 @@
   }
 
   function findPromptInput() {
+    // Fast path: Meta AI exposes the live composer as a contenteditable
+    // div with data-testid="composer-input" + role="textbox". (Note: a
+    // hidden TEXTAREA also exists with the same testid — we explicitly
+    // require the visible role=textbox / contenteditable variant.)
+    for (const el of queryAllDeep('[data-testid="composer-input"][role="textbox"], [data-testid="composer-input"][contenteditable="true"]')) {
+      if (isVisible(el) && isEnabled(el)) return el;
+    }
+
     const candidates = [];
 
     // textareas
@@ -185,7 +193,53 @@
     return el;
   }
 
+  // Find the Meta AI "Send" button (paper-plane icon, aria-label="Send").
+  // Disabled until the composer is non-empty; only enabled state is returned.
+  function findSendButton() {
+    for (const el of queryAllDeep('button[aria-label="Send"], [role="button"][aria-label="Send"]')) {
+      if (isVisible(el)) return el;
+    }
+    return null;
+  }
+
+  // Find the mode pill button ("Create image" / "Create video") that
+  // toggles the composer into image/video generation mode. Clicking it
+  // does NOT generate — it adds a "Create" chip to the composer; the
+  // actual submission still requires clicking the Send button.
+  function findModePill(mode) {
+    const want = (mode === "video" || mode === "image_to_video") ? "create video" : "create image";
+    for (const el of queryAllDeep('button, [role="button"]')) {
+      if (!isVisible(el) || !isEnabled(el)) continue;
+      const t = (el.innerText || "").trim().toLowerCase();
+      if (t === want) return el;
+    }
+    return null;
+  }
+
+  // Heuristic: is the requested mode pill already active in the composer?
+  // Active mode shows a "Create" chip with a dismiss "×" inside the
+  // composer area. We detect by searching the composer's ancestors for
+  // the "create" + "×" text combination.
+  function isModeActive() {
+    const composer = findPromptInput();
+    if (!composer) return false;
+    let parent = composer;
+    for (let i = 0; i < 10 && parent; i++) {
+      const t = (parent.innerText || "").toLowerCase();
+      if (t.includes("create") && (t.includes("\u00d7") || t.includes(" x "))) return true;
+      parent = parent.parentElement;
+    }
+    return false;
+  }
+
+  // Legacy keyword-based scorer kept for fallback / scan-style matches.
   function findGenerateButton(mode) {
+    // Prefer the actual Meta AI submission button when the mode pill is
+    // already active. clickGenerate handles the 2-step flow itself; this
+    // function exists for old call sites and tests.
+    const send = findSendButton();
+    if (send && isEnabled(send)) return send;
+
     const promptEl = findPromptInput();
     const modeKws = (MODE_KEYWORDS[mode] || []).slice();
     const keywords = modeKws.concat(GENERIC_SEND_KEYWORDS);
@@ -199,28 +253,55 @@
         if (t === kw) score += 4;
         else if (t.includes(kw)) score += 2;
       }
-      // svg-only send icons: look at parent form / sibling textarea
       const form = el.closest("form");
       if (form && promptEl && form.contains(promptEl)) score += 2;
-
-      // prefer closest to prompt input
       if (promptEl) {
         const d = distance(el, promptEl);
         if (d < 220) score += 3;
         else if (d < 500) score += 1;
       }
-
       if (score > 0) out.push({ el, score, d: promptEl ? distance(el, promptEl) : 0 });
     }
-
     out.sort((a, b) => (b.score - a.score) || (a.d - b.d));
     return out.length ? out[0].el : null;
   }
 
+  // 2-step generate flow on Meta AI:
+  //   (a) Click the mode pill ("Create image" / "Create video") to put
+  //       the composer in that mode — this only adds a "Create" chip,
+  //       it does NOT submit the prompt.
+  //   (b) Click the Send button (aria-label="Send") to actually submit.
+  // For text-only chat (no image/video), step (a) is skipped.
   async function clickGenerate(mode) {
-    const btn = findGenerateButton(mode);
-    if (!btn) throw new Error("Generate button not found");
-    btn.click();
+    const wantsMedia = mode === "image" || mode === "video" || mode === "image_to_video";
+    if (wantsMedia && !isModeActive()) {
+      const pill = findModePill(mode);
+      if (pill) {
+        pill.click();
+        await sleep(300);
+      } else {
+        // Could not find pill — fall back to legacy heuristic so we don't
+        // strand the user on UI variants we haven't seen.
+        const legacy = findGenerateButton(mode);
+        if (legacy) {
+          legacy.click();
+          return true;
+        }
+        throw new Error("Mode pill (Create image/video) not found");
+      }
+    }
+
+    // Wait briefly for Send to enable (Meta toggles disabled→enabled
+    // once the composer has non-empty content + a mode chip).
+    let send = findSendButton();
+    for (let i = 0; i < 10; i++) {
+      if (send && isEnabled(send)) break;
+      await sleep(150);
+      send = findSendButton();
+    }
+    if (!send) throw new Error("Send button not found");
+    if (!isEnabled(send)) throw new Error("Send button is disabled (composer empty?)");
+    send.click();
     return true;
   }
 
@@ -266,7 +347,19 @@
       out.push({ type, url, width: w, height: h });
     }
 
-    // images
+    // High-confidence selectors first: Meta AI tags generated media with
+    // data-testid="generated-image" / "generated-video" — these are
+    // strictly the model output, not avatars or UI icons.
+    for (const img of queryAllDeep('img[data-testid="generated-image"]')) {
+      const src = img.currentSrc || img.src || "";
+      if (src) push("image", src, img);
+    }
+    for (const v of queryAllDeep('video[data-testid="generated-video"], [data-testid="generated-video"] video')) {
+      const src = v.currentSrc || v.src || (v.querySelector && v.querySelector("source") && v.querySelector("source").src) || "";
+      if (src) push("video", src, v);
+    }
+
+    // images (fallback for non-tagged variants)
     for (const img of queryAllDeep("img")) {
       const src = img.currentSrc || img.src || "";
       if (!src) continue;
@@ -342,6 +435,9 @@
     sleep,
     findPromptInput,
     setPromptText,
+    findSendButton,
+    findModePill,
+    isModeActive,
     findGenerateButton,
     clickGenerate,
     findFileInput,

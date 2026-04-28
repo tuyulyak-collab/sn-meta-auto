@@ -117,10 +117,21 @@ async function getMetaTabOrFail() {
 async function processOne(state, settings, index) {
   const item = state.queue[index];
   if (!item) return { ok: false, error: "No item at index" };
+  // Capture the item ID so post-processing in runLoop can find this exact
+  // item even if the user removed/reordered queue entries during the run.
+  const itemId = item.id;
 
-  await S.saveState({ currentIndex: index });
-  state.queue[index].status = Q.STATUSES.RUNNING;
-  await S.saveState({ queue: state.queue });
+  // Mark RUNNING by ID against the LATEST queue (don't write back the
+  // cached pre-call snapshot — that would clobber concurrent
+  // handleItemAction or handleReset writes).
+  {
+    const fresh = await S.getState();
+    const i = fresh.queue.findIndex((q) => q.id === itemId);
+    if (i >= 0) {
+      fresh.queue[i] = Object.assign({}, fresh.queue[i], { status: Q.STATUSES.RUNNING });
+      await S.saveState({ queue: fresh.queue, currentIndex: i });
+    }
+  }
   broadcast({ type: "STATE_UPDATED" });
 
   const tab = await getMetaTabOrFail();
@@ -190,7 +201,7 @@ async function processOne(state, settings, index) {
     }
   }
 
-  return { ok: true, result: { media: produced } };
+  return { ok: true, itemId, result: { media: produced } };
 }
 
 async function runLoop() {
@@ -216,26 +227,36 @@ async function runLoop() {
       const idx = Q.nextPendingIndex(freshState.queue, 0);
       if (idx < 0) break;
 
+      // Capture the item ID up-front so we can look it up after processOne
+      // even if the queue was reordered/removed during the call.
+      const itemId = freshState.queue[idx].id;
+
       const res = await processOne(freshState, settings, idx).catch((e) => ({
-        ok: false, error: String((e && e.message) || e),
+        ok: false, itemId, error: String((e && e.message) || e),
       }));
 
       const latest = await S.getState();
-      if (res.ok) {
-        Q.markStatus(latest.queue, idx, Q.STATUSES.COMPLETED, { result: res.result, error: null });
+      const latestIdx = latest.queue.findIndex((q) => q.id === itemId);
+
+      if (latestIdx < 0) {
+        // Item was removed (or queue cleared via Reset) while we were
+        // processing it. Nothing to update; just continue.
+        await log(`Item ${itemId}: vanished from queue during processing — skipping update`);
+      } else if (res.ok) {
+        Q.markStatus(latest.queue, latestIdx, Q.STATUSES.COMPLETED, { result: res.result, error: null });
         await S.saveState({
           queue: latest.queue,
           completedCount: (latest.completedCount || 0) + 1,
         });
-        await log(`Item #${idx + 1}: completed`);
+        await log(`Item #${latestIdx + 1}: completed`);
       } else {
-        Q.markStatus(latest.queue, idx, Q.STATUSES.FAILED, { error: res.error || "unknown error" });
+        Q.markStatus(latest.queue, latestIdx, Q.STATUSES.FAILED, { error: res.error || "unknown error" });
         await S.saveState({
           queue: latest.queue,
           failedCount: (latest.failedCount || 0) + 1,
           lastError: res.error || "unknown error",
         });
-        await log(`Item #${idx + 1}: FAILED — ${res.error}`);
+        await log(`Item #${latestIdx + 1}: FAILED — ${res.error}`);
         if (settings.stopOnError) {
           await log("Stop-on-error enabled. Halting.");
           RT.stopRequested = true;
