@@ -141,6 +141,12 @@ async function processOne(state, settings, index) {
   const baseline = (scanBefore && scanBefore.ok && scanBefore.media) ? scanBefore.media.map((m) => m.url) : [];
 
   // 1) If image-to-video and we have an image data URL, try to upload it first.
+  // NOTE: Meta AI's I2V flow accepts a maximum of 1 image per turn — uploading
+  // 5+ images in a single turn causes Meta to silently drop everything past
+  // the first. Each queue item therefore performs its own upload + Send,
+  // i.e. 10 input images => 10 sequential turns (not one turn with 10
+  // attachments). This is enforced by the queue structure: each I2V queue
+  // entry has exactly one imageDataUrl.
   if (item.kind === "image" && item.imageDataUrl) {
     await log(`Item #${index + 1}: uploading image ${item.imageName || ""}`);
     const up = await sendToTab(tab.id, {
