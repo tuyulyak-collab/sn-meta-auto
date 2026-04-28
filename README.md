@@ -48,7 +48,7 @@ python3 tools/generate_icons.py
 4. Pilih **Generate Mode**:
    - **IMAGE** → prompt dikirim + tombol generate image diklik.
    - **VIDEO** → prompt dikirim + tombol generate video diklik.
-   - **IMAGE TO VIDEO** → upload gambar di panel `I2V`, tiap gambar jadi item queue. Prompt di textarea dipakai sebagai prompt pendamping (per-baris, fallback ke baris pertama).
+   - **IMAGE TO VIDEO** → upload gambar (bulk, banyak file sekaligus) di panel `I2V`; tiap gambar jadi item queue. Prompt di textarea **opsional** — kalau kosong, tiap item pakai default `imagine it`. Kalau cuma satu baris prompt, dipakai untuk semua gambar; kalau banyak baris, dipasangkan posisional dengan urutan gambar.
 5. Atur **Settings**:
    - `Delay per task` (default 3 detik)
    - `Max batch` untuk I2V (default 10)
