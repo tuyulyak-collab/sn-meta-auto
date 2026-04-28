@@ -42,6 +42,11 @@
           <button id="btnClearImages" class="sn-btn sn-btn-ghost">Clear Images</button>
           <span class="sn-counter">Images: <strong id="imageCount">0</strong></span>
         </div>
+        <p class="sn-hint">
+          Bulk upload supported. Prompt is optional &mdash; if empty, each image
+          uses <code>imagine it</code> as the default. One prompt line is
+          broadcast to all images; multiple lines pair positionally.
+        </p>
         <div id="imagePreviewGrid" class="sn-image-grid"></div>
         <input type="file" id="fileImageInput" accept="image/*" multiple hidden />
       </div>

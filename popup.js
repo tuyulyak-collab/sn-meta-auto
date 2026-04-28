@@ -271,19 +271,22 @@ async function pushQueueFromUi() {
   const mode = UI.mode;
   let queue = [];
   if (mode === "image_to_video") {
-    // If user provided a single prompt line, use it as shared prompt.
+    // I2V supports bulk image upload. The prompt is optional; if the user
+    // provides nothing, fall back to "imagine it" (Meta AI's animate-this
+    // default phrasing). If the user provides ONE prompt line, broadcast
+    // it to all images. If they provide multiple lines, pair positionally.
     const prompts = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const shared = prompts[0] || "";
+    const I2V_DEFAULT = "imagine it";
+    const shared = prompts.length === 1 ? prompts[0] : (prompts[0] || I2V_DEFAULT);
     if (UI.images.length === 0) {
       toast("Upload images first");
       return false;
     }
-    // Pair images with prompts positionally; extra images use shared prompt.
-    const items = UI.images.map((img, i) => ({
-      dataUrl: img.dataUrl,
-      name: img.name,
-      prompt: prompts[i] != null ? prompts[i] : shared,
-    }));
+    const items = UI.images.map((img, i) => {
+      let p = prompts.length > 1 ? (prompts[i] != null ? prompts[i] : shared) : shared;
+      if (!p) p = I2V_DEFAULT;
+      return { dataUrl: img.dataUrl, name: img.name, prompt: p };
+    });
     const i2vQueue = items.map((img) => ({
       id: "q_" + Math.random().toString(36).slice(2, 10),
       kind: "image",

@@ -375,3 +375,24 @@ p { margin: 0; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg-alt); }
 ::-webkit-scrollbar-thumb { background: var(--border); border: 2px solid var(--bg-alt); }
+
+/* I2V hint paragraph */
+.sn-hint {
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #111;
+  background: #FFF7D6;
+  border: 2px solid #111;
+  box-shadow: 4px 4px 0 #111;
+}
+.sn-hint code {
+  display: inline-block;
+  padding: 0 4px;
+  background: #FF4D00;
+  color: #fff;
+  border: 1.5px solid #111;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 700;
+}
