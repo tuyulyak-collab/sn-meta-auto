@@ -65,7 +65,8 @@
   }
 
   function buildFullPath(subfolder, filename) {
-    const sub = sanitize(subfolder || "SN_Meta_Auto");
+    const trimmed = String(subfolder || "").trim();
+    const sub = sanitize(trimmed || "SN_Meta_Auto") || "SN_Meta_Auto";
     return `${sub}/${filename}`;
   }
 

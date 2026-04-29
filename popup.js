@@ -344,8 +344,8 @@ async function init() {
       delaySec: Number($("#inputDelay").value) || 0,
       maxBatch: Number($("#inputMaxBatch").value) || 10,
       timeoutSec: Number($("#inputTimeout").value) || 180,
-      filenamePattern: $("#inputFilenamePattern").value || "sn_meta_{type}_{index}_{date}",
-      subfolder: $("#inputSubfolder").value || "SN_Meta_Auto",
+      filenamePattern: $("#inputFilenamePattern").value.trim() || "sn_meta_{type}_{index}_{date}",
+      subfolder: $("#inputSubfolder").value.trim() || "SN_Meta_Auto",
       stopOnError: $("#inputStopOnError").checked,
       autoDownload: $("#inputAutoDownload").checked,
     });
