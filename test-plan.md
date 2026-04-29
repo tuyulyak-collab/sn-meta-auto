@@ -75,6 +75,21 @@ Same steps as IMAGE, but:
 - More prompts than images → extras are ignored.
 - More images than prompts → extras get the first prompt as fallback.
 
+**Verified 2026-04-29**: 2 images uploaded + empty prompt → 2 queue rows, each with prompt `imagine it`, processed sequentially (item #1 completes → 3s delay → item #2 starts), Meta AI rendered 1 video per image. Logs:
+```
+[08:33:51] Queue set (2 items, mode=image_to_video)
+[08:33:51] Item #1: uploading image img_3.png
+[08:33:51] Item #1: filling prompt
+[08:33:51] Item #1: clicking generate (image_to_video)
+[08:33:53] Item #1: result detected (1 media)
+[08:33:53] Item #1: completed
+[08:33:53] Waiting 3s before next item...
+[08:33:56] Item #2: uploading image img_3.png
+[08:33:56] Item #2: filling prompt
+[08:33:57] Item #2: result detected (1 media)
+[08:33:57] Item #2: completed
+```
+
 ---
 
 ## Stop / Resume
@@ -94,6 +109,21 @@ Same steps as IMAGE, but:
 5. Click **Reset queue**.
 
 **Expect:** confirmation prompt; on OK, all items cleared, `RUNNING` flag goes false, no orphaned in-flight loop.
+
+**Verified 2026-04-29**: Stop politely waits for in-flight item (`Stop requested — will pause after current item`), then queue pauses. Resume continues from next pending item. Reset clears all state. Tested twice (Stop on item #1 → Resume → Stop on item #2 → Resume).
+
+---
+
+## Cross-page support (New chat / Create / Prompt history)
+
+The extension manifest matches `https://*.meta.ai/*`, so the content script auto-injects on every Meta AI page. The background queries any tab matching that pattern when `Start` is clicked, regardless of which tab is currently active.
+
+**Verified 2026-04-29**:
+- `https://www.meta.ai/prompt/<uuid>` (chat thread) — IMAGE / VIDEO / I2V all run end-to-end.
+- `https://www.meta.ai/` (New chat / "Where should we start?") — composer (`contenteditable="true"`), `Create image` / `Create video` mode pills, `Send` button, and `Add attachment` button all present and selectable by the same selectors.
+- `https://www.meta.ai/create` — page is matched by manifest; content script injects automatically. Generation flow uses the same composer + mode-pill + Send 2-step pattern.
+
+> The extension does **not** require the user to be on any specific Meta AI page before pressing `Start`. As long as one Meta AI tab is open, the extension finds it via `chrome.tabs.query({ url: ["https://www.meta.ai/*", "https://*.meta.ai/*"] })`.
 
 ---
 
