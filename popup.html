@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SN Meta Auto</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="sn-header">
+    <div class="sn-title-row">
+      <h1 class="sn-title">SN META AUTO</h1>
+      <span class="sn-badge" id="statusBadge">IDLE</span>
+    </div>
+    <p class="sn-subtitle">Batch prompt assistant for Meta AI</p>
+  </header>
+
+  <main>
+    <!-- Section 1: Prompt Queue -->
+    <section class="sn-section">
+      <h2 class="sn-section-title">1. Prompt Queue</h2>
+      <div class="sn-row">
+        <button id="btnUploadTxt" class="sn-btn sn-btn-secondary">Upload .TXT</button>
+        <button id="btnClearPrompts" class="sn-btn sn-btn-ghost">Clear</button>
+        <span class="sn-counter">Total Prompt: <strong id="promptCount">0</strong></span>
+      </div>
+      <textarea id="promptTextarea" class="sn-textarea" rows="6"
+        placeholder="One prompt per line.&#10;Example:&#10;A cinematic cat on a neon street&#10;A brutalist cathedral at sunrise"></textarea>
+      <input type="file" id="fileTxtInput" accept=".txt,text/plain" hidden />
+    </section>
+
+    <!-- Section 2: Generate Mode -->
+    <section class="sn-section">
+      <h2 class="sn-section-title">2. Generate Mode</h2>
+      <div class="sn-tabs" role="tablist">
+        <button class="sn-tab active" data-mode="image" role="tab">IMAGE</button>
+        <button class="sn-tab" data-mode="video" role="tab">VIDEO</button>
+        <button class="sn-tab" data-mode="image_to_video" role="tab">IMAGE TO VIDEO</button>
+      </div>
+      <div id="i2vPanel" class="sn-subpanel" hidden>
+        <div class="sn-row">
+          <button id="btnUploadImages" class="sn-btn sn-btn-secondary">Upload Images</button>
+          <button id="btnClearImages" class="sn-btn sn-btn-ghost">Clear Images</button>
+          <span class="sn-counter">Images: <strong id="imageCount">0</strong></span>
+        </div>
+        <p class="sn-hint">
+          Bulk upload supported. Prompt is optional &mdash; if empty, each image
+          uses <code>imagine it</code> as the default. One prompt line is
+          broadcast to all images; multiple lines pair positionally.
+        </p>
+        <div id="imagePreviewGrid" class="sn-image-grid"></div>
+        <input type="file" id="fileImageInput" accept="image/*" multiple hidden />
+      </div>
+    </section>
+
+    <!-- Section 3: Controls -->
+    <section class="sn-section">
+      <h2 class="sn-section-title">3. Controls</h2>
+      <div class="sn-row">
+        <button id="btnStart" class="sn-btn sn-btn-primary">Start</button>
+        <button id="btnStop" class="sn-btn sn-btn-warning">Stop</button>
+        <button id="btnResume" class="sn-btn sn-btn-success">Resume</button>
+        <button id="btnReset" class="sn-btn sn-btn-danger">Reset Queue</button>
+        <button id="btnRetryFailed" class="sn-btn sn-btn-ghost">Retry Failed</button>
+      </div>
+    </section>
+
+    <!-- Section 4: Settings -->
+    <section class="sn-section">
+      <h2 class="sn-section-title">4. Settings</h2>
+      <div class="sn-grid-2">
+        <label class="sn-field">
+          <span>Delay (seconds)</span>
+          <input type="number" id="inputDelay" min="0" step="1" value="3" />
+        </label>
+        <label class="sn-field">
+          <span>Max batch (I2V)</span>
+          <input type="number" id="inputMaxBatch" min="1" step="1" value="10" />
+        </label>
+        <label class="sn-field">
+          <span>Timeout per task (s)</span>
+          <input type="number" id="inputTimeout" min="30" step="5" value="180" />
+        </label>
+        <label class="sn-field">
+          <span>Worker (concurrent)</span>
+          <input type="number" id="inputWorker" min="1" max="1" step="1" value="1" disabled />
+        </label>
+        <label class="sn-field sn-field-full">
+          <span>Filename pattern</span>
+          <input type="text" id="inputFilenamePattern" value="sn_meta_{type}_{index}_{date}" />
+        </label>
+        <label class="sn-field sn-field-full">
+          <span>Download subfolder</span>
+          <input type="text" id="inputSubfolder" value="SN_Meta_Auto" />
+        </label>
+        <label class="sn-field sn-checkbox-row">
+          <input type="checkbox" id="inputStopOnError" />
+          <span>Stop on error</span>
+        </label>
+        <label class="sn-field sn-checkbox-row">
+          <input type="checkbox" id="inputAutoDownload" />
+          <span>Auto-download after each task</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Section 5: Queue Table -->
+    <section class="sn-section">
+      <h2 class="sn-section-title">5. Queue</h2>
+      <div class="sn-table-wrap">
+        <table class="sn-table" id="queueTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Prompt / File</th>
+              <th>Mode</th>
+              <th>Status</th>
+              <th>Result</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="queueTbody"></tbody>
+        </table>
+      </div>
+      <div class="sn-row">
+        <span class="sn-counter">Completed: <strong id="completedCount">0</strong></span>
+        <span class="sn-counter">Failed: <strong id="failedCount">0</strong></span>
+        <span class="sn-counter">Current: <strong id="currentIndex">-</strong></span>
+      </div>
+    </section>
+
+    <!-- Section 6: Tools -->
+    <section class="sn-section">
+      <h2 class="sn-section-title">6. Tools Tambahan</h2>
+      <div class="sn-row">
+        <button id="btnScanMedia" class="sn-btn sn-btn-secondary">Scan Media</button>
+        <button id="btnDownloadSelected" class="sn-btn sn-btn-primary">Download Selected</button>
+        <button id="btnDownloadAll" class="sn-btn sn-btn-success">Download All</button>
+      </div>
+      <div id="mediaGrid" class="sn-media-grid"></div>
+    </section>
+
+    <!-- Section 7: Logs -->
+    <section class="sn-section">
+      <h2 class="sn-section-title">7. Logs</h2>
+      <div class="sn-row">
+        <button id="btnClearLogs" class="sn-btn sn-btn-ghost">Clear Logs</button>
+      </div>
+      <pre id="logPanel" class="sn-log"></pre>
+    </section>
+
+    <!-- Section 8: History -->
+    <section class="sn-section">
+      <h2 class="sn-section-title">8. History</h2>
+      <div class="sn-row">
+        <button id="btnClearHistory" class="sn-btn sn-btn-ghost">Clear History</button>
+      </div>
+      <div id="historyList" class="sn-history"></div>
+    </section>
+  </main>
+
+  <div id="toast" class="sn-toast" hidden></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
