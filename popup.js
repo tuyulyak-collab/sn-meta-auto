@@ -333,8 +333,11 @@ async function init() {
   $("#inputDelay").value = settings.delaySec ?? 3;
   $("#inputMaxBatch").value = settings.maxBatch ?? 10;
   $("#inputTimeout").value = settings.timeoutSec ?? 180;
-  $("#inputFilenamePattern").value = settings.filenamePattern ?? "sn_meta_{type}_{index}_{date}";
-  $("#inputSubfolder").value = settings.subfolder ?? "SN_Meta_Auto";
+  // Filename pattern + subfolder use placeholders for the defaults so a fresh
+  // install shows the hint text. Only pre-fill when the user has saved a
+  // non-default value previously.
+  $("#inputFilenamePattern").value = settings.filenamePattern && settings.filenamePattern !== "sn_meta_{type}_{index}_{date}" ? settings.filenamePattern : "";
+  $("#inputSubfolder").value = settings.subfolder && settings.subfolder !== "SN_Meta_Auto" ? settings.subfolder : "";
   $("#inputStopOnError").checked = !!settings.stopOnError;
   $("#inputAutoDownload").checked = !!settings.autoDownload;
 
@@ -344,8 +347,10 @@ async function init() {
       delaySec: Number($("#inputDelay").value) || 0,
       maxBatch: Number($("#inputMaxBatch").value) || 10,
       timeoutSec: Number($("#inputTimeout").value) || 180,
-      filenamePattern: $("#inputFilenamePattern").value.trim() || "sn_meta_{type}_{index}_{date}",
-      subfolder: $("#inputSubfolder").value.trim() || "SN_Meta_Auto",
+      // Persist the user's actual input (or empty); downloader fallbacks to
+      // the documented defaults when the field is empty / whitespace.
+      filenamePattern: $("#inputFilenamePattern").value.trim(),
+      subfolder: $("#inputSubfolder").value.trim(),
       stopOnError: $("#inputStopOnError").checked,
       autoDownload: $("#inputAutoDownload").checked,
     });
@@ -422,6 +427,25 @@ async function init() {
     const res = await send({ type: "RETRY_FAILED" });
     if (!res.ok) toast(res.error || "Retry failed");
   }));
+
+  // Open the user's default Downloads folder in the OS file explorer.
+  // Chrome extensions can't pick a folder outside Downloads, but they can at
+  // least surface the existing one so the user can navigate to the configured
+  // subfolder.
+  const btnOpenDownloads = $("#btnOpenDownloads");
+  if (btnOpenDownloads) {
+    btnOpenDownloads.addEventListener("click", () => {
+      try {
+        if (chrome.downloads && typeof chrome.downloads.showDefaultFolder === "function") {
+          chrome.downloads.showDefaultFolder();
+        } else {
+          toast("chrome.downloads.showDefaultFolder is unavailable");
+        }
+      } catch (e) {
+        toast("Failed to open Downloads folder");
+      }
+    });
+  }
 
   // Tools
   $("#btnScanMedia").addEventListener("click", withLock($("#btnScanMedia"), async () => {

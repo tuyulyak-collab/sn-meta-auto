@@ -67,6 +67,15 @@
     };
   }
 
+  async function handleClickAnimate() {
+    try {
+      const ok = await DOM.clickFirstAnimate();
+      return { ok, error: ok ? undefined : "Animate button not found" };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  }
+
   const HANDLERS = {
     PING: handlePing,
     FILL_PROMPT: handleFillPrompt,
@@ -74,6 +83,7 @@
     SCAN_MEDIA: handleScanMedia,
     WAIT_COMPLETION: handleWaitCompletion,
     UPLOAD_IMAGE: handleUploadImage,
+    CLICK_ANIMATE: handleClickAnimate,
   };
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

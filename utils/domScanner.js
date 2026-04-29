@@ -313,6 +313,45 @@
     return null;
   }
 
+  // VIDEO mode on Meta AI returns 4 image candidates with an "Animate" button
+  // attached to each tile. Clicking Animate triggers the actual video render.
+  // findAnimateButtons returns visible Animate buttons in document order
+  // (latest assistant turn last, since DOM is sorted by insertion).
+  function findAnimateButtons() {
+    const out = [];
+    for (const el of queryAllDeep('button, [role="button"]')) {
+      if (!isVisible(el) || !isEnabled(el)) continue;
+      const t = (el.innerText || "").trim().toLowerCase();
+      if (t === "animate") out.push(el);
+    }
+    return out;
+  }
+
+  // Click the first Animate button of the latest assistant turn.
+  // Returns true if a click was dispatched, false otherwise.
+  async function clickFirstAnimate() {
+    const btns = findAnimateButtons();
+    if (!btns.length) return false;
+    // Latest turn's buttons are at the end of document order; pick the
+    // first of those by stepping back the candidate group (4 per turn on
+    // Meta AI today, but we don't rely on that count — just click the
+    // earliest button in the latest contiguous group).
+    const last = btns[btns.length - 1];
+    // Walk back to find the first sibling Animate button under the same
+    // parent as the last one (same assistant turn).
+    let firstOfTurn = last;
+    for (let i = btns.length - 2; i >= 0; i--) {
+      if (btns[i].parentElement && last.parentElement && btns[i].closest("[role='listitem'], li, div") === last.closest("[role='listitem'], li, div")) {
+        firstOfTurn = btns[i];
+      } else {
+        break;
+      }
+    }
+    firstOfTurn.click();
+    await sleep(200);
+    return true;
+  }
+
   // Sets files on a file input via DataTransfer. Returns true if the input accepted it.
   function setFilesOnInput(input, files) {
     try {
@@ -445,5 +484,7 @@
     dataUrlToFile,
     collectMedia,
     waitForCompletion,
+    findAnimateButtons,
+    clickFirstAnimate,
   };
 })(typeof window !== "undefined" ? window : this);

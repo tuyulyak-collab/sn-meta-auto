@@ -396,3 +396,13 @@ p { margin: 0; }
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-weight: 700;
 }
+
+/* Inline hint next to a field label, e.g. "(kosongkan = pakai default)" */
+.sn-hint-inline {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: #555;
+  text-transform: none;
+  letter-spacing: 0;
+}

@@ -185,8 +185,41 @@ async function processOne(state, settings, index) {
     return { ok: false, error: wait.error || "Timeout waiting for result" };
   }
 
-  const produced = (wait.payload && wait.payload.media) || [];
+  let produced = (wait.payload && wait.payload.media) || [];
   await log(`Item #${index + 1}: result detected (${produced.length} media)`);
+
+  // 4b) VIDEO mode: Meta returns 4 image candidates with an Animate button
+  // each. Click Animate on the first candidate and wait for the actual
+  // .mp4 to render so the user gets a video file (not a still image).
+  // I2V skips this — Meta animates I2V uploads server-side.
+  if (item.mode === "video" && produced.length > 0) {
+    const stillSet = new Set(produced.map((m) => m.url));
+    const baseline2 = baseline.concat(produced.map((m) => m.url));
+    await log(`Item #${index + 1}: clicking Animate on first candidate`);
+    const animate = await sendToTab(tab.id, { type: "CLICK_ANIMATE" });
+    if (!animate.ok) {
+      await log(`Item #${index + 1}: animate failed — ${animate.error || "unknown"} (keeping image candidate)`);
+    } else {
+      await log(`Item #${index + 1}: waiting for animated video (timeout ${settings.timeoutSec}s)`);
+      const wait2 = await sendToTab(tab.id, {
+        type: "WAIT_COMPLETION",
+        baselineUrls: baseline2,
+        timeoutMs: Math.max(5, Number(settings.timeoutSec || 180)) * 1000,
+      });
+      if (wait2.ok) {
+        const animated = ((wait2.payload && wait2.payload.media) || [])
+          .filter((m) => m.type === "video" && !stillSet.has(m.url));
+        if (animated.length > 0) {
+          produced = [animated[0]];
+          await log(`Item #${index + 1}: animated video detected (1 media)`);
+        } else {
+          await log(`Item #${index + 1}: animate completed but no new video URL detected; keeping candidates`);
+        }
+      } else {
+        await log(`Item #${index + 1}: animate wait failed — ${wait2.error || "timeout"} (keeping candidates)`);
+      }
+    }
+  }
 
   // 5) Auto-download if enabled
   if (settings.autoDownload && produced.length) {
