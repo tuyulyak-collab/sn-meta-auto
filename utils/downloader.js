@@ -25,14 +25,11 @@
     return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}-${mi}-${ss}`, ts: String(now.getTime()) };
   }
 
-  function inferExt(url, type) {
-    try {
-      const u = new URL(url);
-      const m = u.pathname.match(/\.([a-zA-Z0-9]{1,5})(?:$|[?#])/);
-      if (m) return m[1].toLowerCase();
-    } catch (_) { /* ignore */ }
+  function inferExt(_url, type) {
+    // Force consistent extensions regardless of source URL:
+    //   video -> mp4, anything else (image) -> jpg.
     if (type === "video") return "mp4";
-    return "png";
+    return "jpg";
   }
 
   function sanitize(name) {
