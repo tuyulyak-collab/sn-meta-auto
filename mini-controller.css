@@ -1,0 +1,251 @@
+/* mini-controller.css
+ * Floating mini controller injected onto meta.ai pages by mini-controller.js.
+ * Brutalism-style: cream bg, black border, hard offset shadow, bold text.
+ *
+ * All selectors are namespaced under #sn-mini-root or #sn-bubble-root so they
+ * cannot collide with Meta AI's own styles.
+ */
+
+#sn-mini-root,
+#sn-bubble-root {
+  /* Reset inheritance from meta.ai */
+  all: initial;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  position: fixed;
+  z-index: 2147483646;
+  color: #111;
+  text-align: left;
+}
+
+#sn-mini-root {
+  bottom: 16px;
+  right: 16px;
+  width: 340px;
+  background: #FFF7D6;
+  border: 3px solid #111;
+  box-shadow: 6px 6px 0 #111;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.3;
+  user-select: none;
+}
+
+#sn-mini-root[hidden] {
+  display: none !important;
+}
+
+#sn-bubble-root {
+  bottom: 16px;
+  right: 16px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #111;
+  color: #FFE600;
+  border: 3px solid #111;
+  box-shadow: 4px 4px 0 #111;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#sn-bubble-root[hidden] {
+  display: none !important;
+}
+
+#sn-bubble-root:hover {
+  background: #FF4D00;
+  color: #fff;
+}
+
+/* Header row */
+.sn-mini-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.sn-mini-title {
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.sn-mini-mode {
+  background: #FF4D00;
+  color: #fff;
+  border: 2px solid #111;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.sn-mini-head-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.sn-mini-headbtn {
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  background: #fff;
+  color: #111;
+  border: 2px solid #111;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+}
+
+.sn-mini-headbtn:hover {
+  background: #FFE600;
+}
+
+/* Status row */
+.sn-mini-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.sn-mini-statusbadge {
+  font-weight: 900;
+  text-transform: uppercase;
+  background: #fff;
+  border: 2px solid #111;
+  padding: 2px 6px;
+  letter-spacing: 0.4px;
+  font-size: 10px;
+}
+
+.sn-mini-statusbadge[data-state="running"]  { background: #00C2FF; color: #111; }
+.sn-mini-statusbadge[data-state="paused"]   { background: #FFE600; color: #111; }
+.sn-mini-statusbadge[data-state="completed"]{ background: #00C28A; color: #fff; }
+.sn-mini-statusbadge[data-state="failed"]   { background: #FF3B30; color: #fff; }
+.sn-mini-statusbadge[data-state="idle"]     { background: #fff;    color: #111; }
+
+.sn-mini-counts {
+  font-weight: 700;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Progress bar */
+.sn-mini-progress {
+  height: 14px;
+  background: #fff;
+  border: 2px solid #111;
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.sn-mini-progress-fill {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: #00C28A;
+  transition: width 200ms linear;
+}
+
+.sn-mini-progress-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  color: #111;
+  mix-blend-mode: multiply;
+}
+
+/* Control buttons */
+.sn-mini-controls {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.sn-mini-btn {
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  padding: 6px 4px;
+  border: 2px solid #111;
+  background: #fff;
+  color: #111;
+  cursor: pointer;
+  letter-spacing: 0.3px;
+  transition: transform 80ms ease, background 80ms ease;
+}
+
+.sn-mini-btn:not(:disabled):hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 #111;
+}
+
+.sn-mini-btn:not(:disabled):active {
+  transform: none;
+  box-shadow: none;
+}
+
+.sn-mini-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.sn-mini-btn[data-act="start"]  { background: #FF4D00; color: #fff; }
+.sn-mini-btn[data-act="stop"]   { background: #FFE600; color: #111; }
+.sn-mini-btn[data-act="resume"] { background: #00C28A; color: #fff; }
+.sn-mini-btn[data-act="retry"]  { background: #FF3B30; color: #fff; }
+.sn-mini-btn[data-act="skip"]   { background: #111;    color: #FFE600; }
+
+/* Ticker log */
+.sn-mini-ticker {
+  background: #111;
+  color: #FFE600;
+  border: 2px solid #111;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 4px 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  position: relative;
+  height: 18px;
+  line-height: 18px;
+}
+
+.sn-mini-ticker-text {
+  display: inline-block;
+  padding-left: 0;
+  white-space: nowrap;
+}
+
+/* Marquee animation only when text overflows */
+.sn-mini-ticker.is-overflow .sn-mini-ticker-text {
+  padding-left: 100%;
+  animation: sn-mini-marquee 12s linear infinite;
+}
+
+@keyframes sn-mini-marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-100%); }
+}

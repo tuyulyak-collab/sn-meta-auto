@@ -10,6 +10,7 @@
     <div class="sn-title-row">
       <h1 class="sn-title">SN META AUTO</h1>
       <span class="sn-badge" id="statusBadge">IDLE</span>
+      <button id="btnMinimize" type="button" class="sn-btn sn-btn-secondary sn-header-btn" title="Minimize to floating mini controller on meta.ai">MINIMIZE</button>
     </div>
     <p class="sn-subtitle">Batch prompt assistant for Meta AI</p>
   </header>
@@ -85,14 +86,14 @@
           <input type="number" id="inputWorker" min="1" max="1" step="1" value="1" disabled />
         </label>
         <label class="sn-field sn-field-full">
-          <span>Filename pattern <small class="sn-hint-inline">(kosongkan = pakai default)</small></span>
-          <input type="text" id="inputFilenamePattern" placeholder="sn_meta_{type}_{index}_{date}" />
+          <span>Filename pattern <small class="sn-hint-inline">(leave empty for default)</small></span>
+          <input type="text" id="inputFilenamePattern" placeholder="Enter desired filename pattern (default: sn_meta_{type}_{index}_{date})" />
         </label>
         <label class="sn-field sn-field-full">
-          <span>Download subfolder <small class="sn-hint-inline">(kosongkan = pakai default)</small></span>
+          <span>Download subfolder <small class="sn-hint-inline">(leave empty for default)</small></span>
           <div class="sn-row">
-            <input type="text" id="inputSubfolder" placeholder="SN_Meta_Auto" />
-            <button id="btnOpenDownloads" type="button" class="sn-btn sn-btn-ghost" title="Buka folder Downloads di file explorer">📁 Open</button>
+            <input type="text" id="inputSubfolder" placeholder="Enter folder name (default: SN_Meta_Auto)" />
+            <button id="btnOpenDownloads" type="button" class="sn-btn sn-btn-ghost" title="Open Downloads folder in file explorer">📁 Open</button>
           </div>
         </label>
         <label class="sn-field sn-checkbox-row">

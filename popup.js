@@ -428,6 +428,38 @@ async function init() {
     if (!res.ok) toast(res.error || "Retry failed");
   }));
 
+  // MINIMIZE: send a SHOW_MINI message to every meta.ai tab so the floating
+  // mini controller appears, then close the popup. Visibility is persisted
+  // via chrome.storage by the content script so it survives reloads.
+  const btnMinimize = $("#btnMinimize");
+  if (btnMinimize) {
+    btnMinimize.addEventListener("click", async () => {
+      try {
+        const tabs = await new Promise((resolve) => {
+          chrome.tabs.query({ url: ["https://*.meta.ai/*"] }, (t) => resolve(t || []));
+        });
+        if (!tabs.length) {
+          toast("Open meta.ai first to use the mini controller");
+          return;
+        }
+        // Persist intent so any meta.ai tab that is opened later also picks
+        // it up via storage.onChanged. Then nudge active tabs immediately.
+        try { chrome.storage.local.set({ sn_mini_visible: "mini" }); } catch (_) {}
+        for (const t of tabs) {
+          try {
+            chrome.tabs.sendMessage(t.id, { type: "SHOW_MINI" }, () => {
+              void chrome.runtime.lastError;
+            });
+          } catch (_) { /* ignore */ }
+        }
+        // Close the popup. window.close() is allowed inside an extension popup.
+        try { window.close(); } catch (_) {}
+      } catch (e) {
+        toast("Minimize failed");
+      }
+    });
+  }
+
   // Open the user's default Downloads folder in the OS file explorer.
   // Chrome extensions can't pick a folder outside Downloads, but they can at
   // least surface the existing one so the user can navigate to the configured

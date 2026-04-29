@@ -38,7 +38,11 @@
       ],
       "js": [
         "utils/domScanner.js",
-        "content.js"
+        "content.js",
+        "mini-controller.js"
+      ],
+      "css": [
+        "mini-controller.css"
       ],
       "run_at": "document_idle",
       "all_frames": false
