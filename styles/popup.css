@@ -81,20 +81,11 @@ body {
 }
 
 .logo-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary);
-  color: #fff;
-  font-weight: 800;
-  font-size: 14px;
+  display: inline-block;
   width: 38px;
   height: 38px;
-  border: 2px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--shadow-button);
+  object-fit: contain;
   flex-shrink: 0;
-  letter-spacing: 0.5px;
 }
 
 .logo-text h1 {
