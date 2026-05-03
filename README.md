@@ -67,10 +67,10 @@ python3 tools/generate_icons.py
 Default: `sn_meta_{type}_{index}_{date}`
 
 Contoh hasil:
-- `SN_Meta_Auto/sn_meta_image_001_2026-04-28.png`
-- `SN_Meta_Auto/sn_meta_video_001_2026-04-28.mp4`
+- `SN_Meta_Auto/sn_meta_image_001_20260428.png`
+- `SN_Meta_Auto/sn_meta_video_001_20260428.mp4`
 
-Token tersedia: `{type}`, `{index}` (3 digit, zero-padded), `{date}` (`YYYY-MM-DD`), `{time}` (`HH-MM-SS`), `{ts}` (unix ms), `{ext}`.
+Token tersedia: `{type}`, `{index}` (3 digit, zero-padded), `{date}` (`YYYYMMDD`), `{time}` (`HHMMSS`), `{ts}` (unix ms), `{ext}`.
 
 ---
 
