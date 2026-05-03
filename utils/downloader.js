@@ -3,8 +3,8 @@
  * Pattern tokens:
  *   {type}   → "image" | "video"
  *   {index}  → zero-padded 3-digit index (e.g. 001)
- *   {date}   → YYYY-MM-DD
- *   {time}   → HH-MM-SS
+ *   {date}   → YYYYMMDD
+ *   {time}   → HHMMSS
  *   {ts}     → unix ms
  *   {ext}    → file extension (inferred from URL or type)
  */
@@ -22,7 +22,7 @@
     const hh = String(now.getHours()).padStart(2, "0");
     const mi = String(now.getMinutes()).padStart(2, "0");
     const ss = String(now.getSeconds()).padStart(2, "0");
-    return { date: `${yyyy}-${mm}-${dd}`, time: `${hh}-${mi}-${ss}`, ts: String(now.getTime()) };
+    return { date: `${yyyy}${mm}${dd}`, time: `${hh}${mi}${ss}`, ts: String(now.getTime()) };
   }
 
   function inferExt(_url, type) {
