@@ -3,7 +3,9 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-// Runtime UI-only state
+// Runtime UI-only state. The popup is now a single-context UI — the old
+// PR #6 "separate Chrome popup window via chrome.windows.create({?mini=1})"
+// has been replaced by the injected floating overlay (see floatingPanel.js).
 const UI = {
   mode: "image",
   images: [], // [{ dataUrl, name, prompt? }]
@@ -11,36 +13,7 @@ const UI = {
   scannedSelection: new Set(),
   busyButtons: new Set(),
   lastState: null, // last rendered state — used by applyButtonStates after lock release
-  // The popup runs in two contexts:
-  //  - Regular extension popup (from toolbar click) when ?mini is absent.
-  //  - Separate Chrome popup window (chrome.windows.create) when ?mini=1.
-  // The mini context renders #miniView and hides <main>; the OS window itself
-  // is what's draggable, so the user can park it anywhere on screen and it
-  // stays open even when they click outside (unlike the toolbar popup, which
-  // Chrome auto-closes on outside click).
-  isMiniWindow: new URLSearchParams(location.search).get("mini") === "1",
 };
-
-// Mini popup window dimensions — small enough to keep next to meta.ai,
-// large enough to fit the stats grid + 5-button control row + log line.
-const MINI_WINDOW_WIDTH = 480;
-const MINI_WINDOW_HEIGHT = 320;
-
-// sn_ui storage key holds the mini window ID so a second Minimize click
-// from the main popup can focus the existing mini window instead of
-// spawning a duplicate.
-const UI_KEY = "sn_ui";
-async function loadUiPrefs() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get(UI_KEY, (res) => resolve(res[UI_KEY] || {}));
-  });
-}
-async function saveUiPrefs(partial) {
-  const cur = await loadUiPrefs();
-  const next = Object.assign({}, cur, partial);
-  await new Promise((r) => chrome.storage.local.set({ [UI_KEY]: next }, r));
-  return next;
-}
 
 // Re-usable senders
 function send(msg) {
@@ -89,7 +62,9 @@ function applyButtonStates() {
   // Block Start while still reading uploaded images — without this the
   // user could click Start mid-upload and end up with a queue that's
   // missing the trailing images that hadn't finished readAsDataURL yet.
-  if (start) start.disabled = !!s.isRunning || UI.busyButtons.has(start) || !!UI.uploadingImages;
+  // After STOP the queue is paused: START stays disabled (RESUME is the
+  // correct affordance for resuming a paused queue without rebuilding it).
+  if (start) start.disabled = !!s.isRunning || !!s.isPaused || UI.busyButtons.has(start) || !!UI.uploadingImages;
   if (stop) stop.disabled = !s.isRunning || UI.busyButtons.has(stop);
   if (resume) resume.disabled = !!s.isRunning || !s.isPaused || UI.busyButtons.has(resume);
   // Buttons without state-driven disabled rules: only block during in-flight call.
@@ -136,9 +111,8 @@ function escapeHtml(s) {
   }[c]));
 }
 
-// Compute the badge label/color from raw state fields.
-// Centralized so renderState (main view) and renderMiniView (mini window)
-// can both reuse it without duplicating the precedence rules.
+// Compute the badge label/color from raw state fields. Centralized so
+// the popup and the injected floating panel can reuse the same precedence.
 function computeBadge(state) {
   if (state.isRunning) return { label: "RUNNING", state: "running" };
   if (state.isPaused) return { label: "PAUSED", state: "paused" };
@@ -164,9 +138,6 @@ function renderState(state) {
   // badge (top-of-popup chip)
   const info = computeBadge(state);
   setBadge($("#statusBadge"), info);
-
-  // Mini view (only rendered when this popup was opened with ?mini=1).
-  if (UI.isMiniWindow) renderMiniView(state, info);
 
   // queue table
   const tbody = $("#queueTbody");
@@ -309,7 +280,7 @@ function setMode(mode) {
   UI.mode = mode;
   $$(".sn-tab").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
   $("#i2vPanel").hidden = mode !== "image_to_video";
-  // Header chip mirrors the active mode in both main and mini views.
+  // Header chip reflects the current mode tag.
   const tag = $("#modeTag");
   if (tag) {
     const labels = { image: "IMAGE", video: "VIDEO", image_to_video: "I2V" };
@@ -317,26 +288,7 @@ function setMode(mode) {
   }
 }
 
-// ---- menu + minimize ----
-// applyMiniContext sets up the body class and dropdown options based on
-// whether this popup is the regular toolbar popup (max view) or the
-// separate Chrome popup window (mini view, ?mini=1).
-function applyMiniContext() {
-  document.body.classList.toggle("is-minimized", UI.isMiniWindow);
-  $("#miniView").hidden = !UI.isMiniWindow;
-
-  // Menu items:
-  //   Main view  →  Minimize, Close Panel
-  //   Mini view  →  Back to Main, Close Panel
-  // The third item (whichever isn't applicable in this context) is hidden
-  // outright via the [hidden] attribute, not just disabled, because the
-  // mockup wants a tight 2-item menu in each context.
-  const minimizeItem = document.querySelector('[data-menu="minimize"]');
-  const backItem = document.querySelector('[data-menu="back"]');
-  if (minimizeItem) minimizeItem.hidden = UI.isMiniWindow;
-  if (backItem) backItem.hidden = !UI.isMiniWindow;
-}
-
+// ---- menu ----
 function toggleMenu(forceOpen) {
   const dd = $("#menuDropdown");
   const btn = $("#btnMenu");
@@ -345,131 +297,17 @@ function toggleMenu(forceOpen) {
   btn.setAttribute("aria-expanded", open ? "true" : "false");
 }
 
-// Open (or focus) the mini popup window. Called from the main popup's
-// MENU → Minimize. Closes the current popup so the user is left with
-// only the draggable mini window.
-async function openMiniWindow() {
-  const ui = await loadUiPrefs();
-  // If a previous mini window is still around, focus it instead of
-  // spawning a duplicate. chrome.windows.get returns an error for
-  // missing windows, which we treat as "open a fresh one".
-  if (ui.miniWindowId) {
-    const exists = await new Promise((resolve) => {
-      chrome.windows.get(ui.miniWindowId, (w) => {
-        resolve(!chrome.runtime.lastError && w);
-      });
-    });
-    if (exists) {
-      chrome.windows.update(ui.miniWindowId, { focused: true });
-      window.close();
-      return;
-    }
+// Open the floating overlay inside the active meta.ai tab. The actual
+// inject + show is done by background.js → chrome.scripting.executeScript;
+// the popup just kicks it off and stays open so the user can keep editing
+// the queue while the panel runs alongside.
+async function openFloatingPanel() {
+  const res = await send({ type: "OPEN_FLOATING_PANEL" });
+  if (!res.ok) {
+    toast(res.error || "Failed to open floating panel");
+    return;
   }
-  const url = chrome.runtime.getURL("popup.html?mini=1");
-  await new Promise((resolve) => {
-    chrome.windows.create({
-      url,
-      type: "popup",
-      width: MINI_WINDOW_WIDTH,
-      height: MINI_WINDOW_HEIGHT,
-      focused: true,
-    }, async (win) => {
-      if (!win) return resolve();
-      await saveUiPrefs({ miniWindowId: win.id });
-      // Some Chrome configurations (e.g. last session was maximized, or
-      // launch flags like --start-maximized) cause windows.create to
-      // ignore width/height and open the popup full-screen. Force a
-      // normal-state resize as a follow-up so the user actually gets a
-      // compact draggable panel.
-      chrome.windows.update(win.id, {
-        state: "normal",
-        width: MINI_WINDOW_WIDTH,
-        height: MINI_WINDOW_HEIGHT,
-      }, () => {
-        // swallow any "no such window" lastError if user closed it instantly
-        const _e = chrome.runtime && chrome.runtime.lastError; void _e;
-        resolve();
-      });
-    });
-  });
-  window.close();
-}
-
-// Mini → Main. Best effort: ask Chrome to open the toolbar popup, then
-// close the mini window. chrome.action.openPopup is supported in MV3
-// from Chrome 127+; on older builds it's a no-op and the user just
-// re-clicks the toolbar icon — acceptable fallback.
-async function backToMain() {
-  await saveUiPrefs({ miniWindowId: null });
-  try {
-    if (chrome.action && typeof chrome.action.openPopup === "function") {
-      chrome.action.openPopup();
-    }
-  } catch (_) { /* ignore — fallback is toolbar click */ }
-  window.close();
-}
-
-// ---- mini view rendering + button wiring ----
-function statusTextFor(state, info) {
-  if (state.lastError) return state.lastError;
-  if (info.state === "running") {
-    const cur = state.currentIndex >= 0 ? state.currentIndex + 1 : 0;
-    const total = (state.queue || []).length;
-    return cur && total ? `Memproses item ${cur}/${total}` : "Memproses...";
-  }
-  if (info.state === "paused") return "Dijeda — klik RESUME untuk lanjut";
-  if (info.state === "done") return "Semua tugas selesai";
-  const total = (state.queue || []).length;
-  if (total === 0) return "Tidak ada tugas dalam antrean";
-  return "Siap menjalankan tugas";
-}
-
-function renderMiniView(state, info) {
-  const completed = state.completedCount || 0;
-  const failed = state.failedCount || 0;
-  const total = (state.queue || []).length;
-  const current = state.currentIndex >= 0 ? state.currentIndex + 1 : 0;
-  const processed = completed + failed;
-  const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-
-  $("#miniDone").textContent = String(completed);
-  $("#miniFail").textContent = String(failed);
-  $("#miniCurrent").textContent = String(current);
-  $("#miniProgressFill").style.width = percent + "%";
-  $("#miniProgressLabel").textContent = percent + "%";
-
-  setBadge($("#miniBadge"), info);
-  $("#miniStatusText").textContent = statusTextFor(state, info);
-
-  // Update mini control button disabled states. Mirror applyButtonStates
-  // logic so the user gets the same affordances in both views.
-  const isRunning = !!state.isRunning;
-  const isPaused = !!state.isPaused;
-  const failedExists = (state.queue || []).some((q) => q.status === "failed");
-  const runningItem = (state.queue || []).find((q) => q.status === "running" || q.status === "paused");
-
-  const miniStart = $("#miniBtnStart");
-  const miniStop = $("#miniBtnStop");
-  const miniResume = $("#miniBtnResume");
-  const miniRetry = $("#miniBtnRetry");
-  const miniSkip = $("#miniBtnSkip");
-  // Start: enabled only when not running and there are queue items at all.
-  // The user explicitly asked for the controls in mini view to drive the
-  // existing queue, so we don't accept new prompts/images here — just
-  // resume work on whatever's already in sn_state.
-  if (miniStart) miniStart.disabled = isRunning || total === 0 || (processed >= total && total > 0);
-  if (miniStop) miniStop.disabled = !isRunning;
-  if (miniResume) miniResume.disabled = isRunning || !isPaused;
-  if (miniRetry) miniRetry.disabled = !failedExists;
-  if (miniSkip) miniSkip.disabled = !runningItem;
-}
-
-function renderMiniLog(logs) {
-  const last = (logs || []).slice(-1)[0];
-  const el = $("#miniLog");
-  if (!el) return;
-  if (last) el.textContent = `[${last.ts}] ${last.msg}`;
-  else el.textContent = "[--:--:--] No activity yet.";
+  toast("Floating panel opened on meta.ai");
 }
 
 // ---- build queue from UI and push to background ----
@@ -530,19 +368,13 @@ async function pushQueueFromUi() {
 
 // ---- init / binding ----
 async function init() {
-  // Decide mini-vs-main context first; some renderers branch on UI.isMiniWindow.
-  applyMiniContext();
-
   // Load persisted state
   const [state, settings] = await Promise.all([getState(), getSettings()]);
 
-  // textarea + promptText draft (only matters in main view, but mini view
-  // also writes through main's element since it lives in the same DOM).
   if (state.promptText) $("#promptTextarea").value = state.promptText;
   renderPromptCount();
   renderState(state);
   renderLogs(state.logs);
-  renderMiniLog(state.logs);
   renderHistory(state.history);
 
   // Mode from state
@@ -567,30 +399,23 @@ async function init() {
     it.addEventListener("click", async () => {
       const action = it.dataset.menu;
       toggleMenu(false);
-      if (action === "minimize") {
-        // Spawn a draggable Chrome popup window in mini mode.
-        await openMiniWindow();
-      } else if (action === "back") {
-        // Re-open the main toolbar popup, close this mini window.
-        await backToMain();
+      if (action === "open-floating") {
+        // Inject the floating overlay into the meta.ai tab. Popup stays open
+        // so the user can keep editing the queue alongside the panel.
+        await openFloatingPanel();
       } else if (action === "close") {
         // Close popup. The run loop lives in background.js so the queue
-        // keeps running — only the UI window is dismissed.
-        if (UI.isMiniWindow) await saveUiPrefs({ miniWindowId: null });
+        // keeps running — only the popup UI is dismissed.
         window.close();
       }
     });
   });
 
-  // Mini view button wiring — each button drives the same queue commands
-  // used by the main view, but resolved via direct send() calls so the
-  // main #btnStart click handler (which would also try to push the
-  // textarea queue) doesn't run from the mini context.
-  if (UI.isMiniWindow) wireMiniControls();
-
-  // Settings
+  // Settings. The previous "Max batch (I2V)" knob has been removed because
+  // the run loop no longer hard-stops at 10 items — I2V auto-continues
+  // through the whole queue. Existing settings.maxBatch values are still
+  // tolerated by storage.js DEFAULT_SETTINGS but no longer surfaced here.
   $("#inputDelay").value = settings.delaySec ?? 3;
-  $("#inputMaxBatch").value = settings.maxBatch ?? 10;
   $("#inputTimeout").value = settings.timeoutSec ?? 180;
   $("#inputFilenamePattern").value = settings.filenamePattern ?? "sn_meta_{type}_{index}_{date}";
   $("#inputSubfolder").value = settings.subfolder ?? "SN_Meta_Auto";
@@ -601,7 +426,6 @@ async function init() {
   const onSettingChange = async () => {
     await saveSettingsPartial({
       delaySec: Number($("#inputDelay").value) || 0,
-      maxBatch: Number($("#inputMaxBatch").value) || 10,
       timeoutSec: Number($("#inputTimeout").value) || 180,
       filenamePattern: $("#inputFilenamePattern").value || "sn_meta_{type}_{index}_{date}",
       subfolder: $("#inputSubfolder").value || "SN_Meta_Auto",
@@ -609,7 +433,7 @@ async function init() {
       autoDownload: $("#inputAutoDownload").checked,
     });
   };
-  ["#inputDelay","#inputMaxBatch","#inputTimeout","#inputFilenamePattern","#inputSubfolder","#inputStopOnError","#inputAutoDownload"].forEach((sel) => {
+  ["#inputDelay","#inputTimeout","#inputFilenamePattern","#inputSubfolder","#inputStopOnError","#inputAutoDownload"].forEach((sel) => {
     const el = $(sel);
     el.addEventListener("change", onSettingChange);
     el.addEventListener("input", onSettingChange);
@@ -739,7 +563,6 @@ async function init() {
       const ns = changes.sn_state.newValue || {};
       renderState(ns);
       renderLogs(ns.logs || []);
-      renderMiniLog(ns.logs || []);
       renderHistory(ns.history || []);
     }
   });
@@ -749,56 +572,9 @@ async function init() {
       getState().then((s) => {
         renderState(s);
         renderLogs(s.logs || []);
-        renderMiniLog(s.logs || []);
         renderHistory(s.history || []);
       });
     }
-  });
-}
-
-// Mini view button handlers. Routed straight through send() rather than
-// dispatching click() on the main #btnStart, because the main Start
-// handler also runs pushQueueFromUi() (which expects the textarea + I2V
-// uploader UI). Mini view never edits the queue — it just controls the
-// already-pushed sn_state.queue.
-function wireMiniControls() {
-  const start = $("#miniBtnStart");
-  const stop = $("#miniBtnStop");
-  const resume = $("#miniBtnResume");
-  const retry = $("#miniBtnRetry");
-  const skip = $("#miniBtnSkip");
-
-  if (start) start.addEventListener("click", async () => {
-    start.disabled = true;
-    const res = await send({ type: "START" });
-    if (!res.ok) toast(res.error || "Start failed");
-  });
-  if (stop) stop.addEventListener("click", async () => {
-    stop.disabled = true;
-    const res = await send({ type: "STOP" });
-    if (!res.ok) toast(res.error || "Stop failed");
-  });
-  if (resume) resume.addEventListener("click", async () => {
-    resume.disabled = true;
-    const res = await send({ type: "RESUME" });
-    if (!res.ok) toast(res.error || "Resume failed");
-  });
-  if (retry) retry.addEventListener("click", async () => {
-    retry.disabled = true;
-    const res = await send({ type: "RETRY_FAILED" });
-    if (!res.ok) toast(res.error || "Retry failed");
-  });
-  if (skip) skip.addEventListener("click", async () => {
-    // Skip the currently running/paused item, falling back to the first
-    // pending one if no item is in-flight (e.g. user paused before Start).
-    const state = await getState();
-    const target =
-      (state.queue || []).find((q) => q.status === "running" || q.status === "paused") ||
-      (state.queue || []).find((q) => q.status === "pending");
-    if (!target) { toast("No item to skip"); return; }
-    skip.disabled = true;
-    const res = await send({ type: "ITEM_ACTION", action: "skip", id: target.id });
-    if (!res.ok) toast(res.error || "Skip failed");
   });
 }
 
