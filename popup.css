@@ -125,55 +125,188 @@ p { margin: 0; }
   font-weight: 900;
 }
 
-/* Mini counter shown only in minimized state */
-.sn-mini-counter {
-  font-size: 11px;
-  font-weight: 800;
+/* Mode tag (IMAGE / VIDEO / IMAGE TO VIDEO) — header chip next to title */
+.sn-mode-tag {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
   text-transform: uppercase;
-  letter-spacing: 0.3px;
-  padding: 4px 8px;
-  background: #fff;
+  padding: 4px 7px;
+  background: var(--primary);
+  color: #fff;
   border: 2px solid var(--border);
+  box-shadow: var(--shadow-pressed);
   white-space: nowrap;
 }
 
-/* Expand chip — only shown when minimized */
-.sn-icon-btn {
-  font-family: inherit;
-  font-weight: 900;
-  font-size: 18px;
-  line-height: 1;
-  width: 28px;
-  height: 28px;
+/* ----- Minimize tab — separate Chrome popup window opened via
+   chrome.windows.create({type:'popup'}). Loaded with ?mini=1 so popup.js
+   knows to swap into the compact view. The OS window itself is what's
+   draggable; the user just grabs the title bar. ----- */
+body.is-minimized {
+  width: 100%;
+  max-height: none;
+  padding: 10px;
+  overflow: hidden;
+  /* The browser sets the window size via chrome.windows.create; let body fill it. */
+  min-height: 100vh;
+}
+body.is-minimized main { display: none; }
+body.is-minimized .sn-subtitle { display: none; }
+body.is-minimized .sn-header {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+}
+body.is-minimized .sn-title { font-size: 16px; letter-spacing: 0.5px; }
+body.is-minimized #statusBadge { display: none; } /* mini view shows its own badge below */
+body.is-minimized #miniView { display: block; }
+body.is-minimized .sn-toast { bottom: auto; top: 14px; }
+
+/* Mini view container */
+.sn-mini-view {
+  background: var(--bg-alt);
+  border: var(--bw) solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sn-mini-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sn-mini-status-text {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* DONE / FAIL / CURRENT stat cards */
+.sn-mini-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.sn-stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: #fff;
+  border: var(--bw) solid var(--border);
+  box-shadow: var(--shadow-sm);
+}
+.sn-stat-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--accent);
-  color: var(--text);
-  border: var(--bw) solid var(--border);
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
-  padding: 0;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border);
+  font-weight: 900;
+  font-size: 13px;
+  flex: 0 0 auto;
 }
-.sn-icon-btn:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--border); }
-.sn-icon-btn:active { transform: translate(2px, 2px); box-shadow: var(--shadow-pressed); }
+.sn-stat-icon.ok   { background: var(--success); color: #fff; }
+.sn-stat-icon.fail { background: var(--error);   color: #fff; }
+.sn-stat-icon.cur  { background: var(--secondary); color: var(--text); }
+.sn-stat-label {
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sn-stat-num {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--text);
+  margin-left: auto;
+}
 
-/* Minimized layout — collapses to a thin header bar */
-body.is-minimized {
-  width: 420px;
-  max-height: none;
-  padding: 8px;
+/* Progress bar */
+.sn-mini-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sn-mini-progress-track {
+  flex: 1 1 auto;
+  height: 14px;
+  background: #fff;
+  border: var(--bw) solid var(--border);
+  box-shadow: var(--shadow-pressed);
+  position: relative;
   overflow: hidden;
 }
-body.is-minimized main { display: none; }
-body.is-minimized .sn-toast { bottom: auto; top: 14px; }
-body.is-minimized .sn-header {
-  margin-bottom: 0;
-  padding: 8px 10px;
+.sn-mini-progress-fill {
+  height: 100%;
+  background: var(--primary);
+  width: 0%;
+  transition: width 200ms ease-out;
 }
-body.is-minimized .sn-subtitle { display: none; }
-body.is-minimized .sn-title { font-size: 14px; letter-spacing: 0.5px; }
-body.is-minimized .sn-badge { font-size: 10px; padding: 3px 6px; }
+.sn-mini-progress-label {
+  font-size: 11px;
+  font-weight: 900;
+  min-width: 36px;
+  text-align: right;
+}
+
+/* Mini control buttons */
+.sn-mini-controls {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.sn-mini-ctrl {
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  padding: 7px 6px;
+  border: var(--bw) solid var(--border);
+  box-shadow: var(--shadow-sm);
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+.sn-mini-ctrl:hover { transform: translate(-1px, -1px); box-shadow: 5px 5px 0 var(--border); }
+.sn-mini-ctrl:active { transform: translate(2px, 2px); box-shadow: var(--shadow-pressed); }
+.sn-mini-ctrl:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: var(--shadow-pressed);
+}
+.sn-mini-ctrl.start  { background: var(--success); color: #fff; }
+.sn-mini-ctrl.stop   { background: var(--accent); }
+.sn-mini-ctrl.resume { background: #B6E5C2; }
+.sn-mini-ctrl.retry  { background: #F5B7A6; }
+.sn-mini-ctrl.skip   { background: #C8C2A8; }
+
+/* Single-line log mirror — same green-on-black look as main #logPanel */
+.sn-mini-log {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: var(--text);
+  color: #E5FF00;
+  border: var(--bw) solid var(--border);
+  padding: 6px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .sn-subtitle {
   margin-top: 4px;
