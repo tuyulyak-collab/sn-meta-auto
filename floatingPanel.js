@@ -105,16 +105,27 @@
 
   // ---------- panel build ----------
   function buildPanel() {
-    const header = el("div", { class: "snfp-header" });
-    const title = el("span", { class: "snfp-title" }, "SN Meta Auto · Floating");
+    // ---- top card: title bar (drag handle, mode tag, close) ----
+    const title = el("span", { class: "snfp-title" }, "SN META AUTO");
+    const modeTag = el("span", { class: "snfp-mode-tag", "data-mode": "image" }, "IMAGE");
     const closeBtn = el(
       "button",
-      { class: "snfp-close", title: "Close (does not stop the queue)", "aria-label": "Close" },
-      "\u00d7"
+      {
+        class: "snfp-close",
+        title: "Close (does not stop the queue)",
+        "aria-label": "Close floating panel",
+      },
+      "CLOSE \u00d7"
     );
-    header.appendChild(title);
-    header.appendChild(closeBtn);
+    const headerCard = el(
+      "div",
+      { class: "snfp-card snfp-header" },
+      title,
+      modeTag,
+      closeBtn
+    );
 
+    // ---- bottom card: status / stats / progress / controls / log ----
     const badge = el("span", { class: "snfp-badge", "data-state": "" }, "IDLE");
     const statusText = el("span", { class: "snfp-status-text" }, "Ready");
     const statusRow = el("div", { class: "snfp-status-row" }, badge, statusText);
@@ -171,10 +182,9 @@
 
     const logLine = el("div", { class: "snfp-log" }, "[--:--:--] Ready.");
 
-    const root = el(
+    const bodyCard = el(
       "div",
-      { id: PANEL_ID, role: "region", "aria-label": "SN Meta Auto floating control" },
-      header,
+      { class: "snfp-card snfp-body" },
       statusRow,
       stats,
       progress,
@@ -182,9 +192,17 @@
       logLine
     );
 
+    const root = el(
+      "div",
+      { id: PANEL_ID, role: "region", "aria-label": "SN Meta Auto floating control" },
+      headerCard,
+      bodyCard
+    );
+
     return {
       root,
-      header,
+      header: headerCard,
+      modeTag,
       closeBtn,
       badge,
       statusText,
@@ -301,13 +319,19 @@
     if (info.state === "running") {
       const cur = state.currentIndex >= 0 ? state.currentIndex + 1 : 0;
       const total = (state.queue || []).length;
-      return cur && total ? `Processing ${cur}/${total}` : "Processing...";
+      return cur && total ? `Processing item ${cur}/${total}` : "Processing...";
     }
     if (info.state === "paused") return "Paused — click RESUME to continue";
     if (info.state === "completed") return "All tasks complete";
     const total = (state.queue || []).length;
     if (total === 0) return "No tasks queued";
     return "Ready";
+  }
+
+  function modeLabel(mode) {
+    if (mode === "video") return "VIDEO";
+    if (mode === "image_to_video") return "I2V";
+    return "IMAGE";
   }
 
   function renderState(parts, state) {
@@ -328,6 +352,10 @@
     parts.badge.textContent = info.label;
     parts.badge.dataset.state = info.state;
     parts.statusText.textContent = statusTextFor(state, info);
+
+    const mode = state.mode || "image";
+    parts.modeTag.dataset.mode = mode;
+    parts.modeTag.textContent = modeLabel(mode);
 
     const isRunning = !!state.isRunning;
     const isPaused = !!state.isPaused;
