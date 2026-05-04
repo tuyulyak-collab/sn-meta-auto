@@ -388,7 +388,15 @@
 
   // Returns a promise that resolves when a likely generation completion is detected
   // or rejects after `timeoutMs`.
-  function waitForCompletion({ timeoutMs = 180000, baselineMediaUrls = [] } = {}) {
+  //
+  // requiredType: when set ("image" | "video"), only fresh media of that type
+  // counts as completion. This is critical for I2V mode — Meta AI shows a
+  // <img> poster/thumbnail (.jpg) for the result several hundred ms BEFORE
+  // the actual <video> element is mounted; without this filter, the loop
+  // returns the poster URL and the auto-download grabs a .jpg instead of
+  // the .mp4. Set requiredType="video" for I2V so the wait sticks until
+  // a real <video> source appears.
+  function waitForCompletion({ timeoutMs = 180000, baselineMediaUrls = [], requiredType = null } = {}) {
     return new Promise((resolve, reject) => {
       const baseline = new Set(baselineMediaUrls);
       let done = false;
@@ -405,8 +413,11 @@
       function check() {
         const media = collectMedia();
         const fresh = media.filter((m) => !baseline.has(m.url));
-        if (fresh.length > 0) {
-          return finish("media_detected", { media: fresh });
+        const matching = requiredType
+          ? fresh.filter((m) => m.type === requiredType)
+          : fresh;
+        if (matching.length > 0) {
+          return finish("media_detected", { media: matching });
         }
       }
 

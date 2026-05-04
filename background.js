@@ -174,19 +174,41 @@ async function processOne(state, settings, index) {
     return { ok: false, error: clk.error || "Generate button not found" };
   }
 
-  // 4) Wait for completion
+  // 4) Wait for completion. In I2V mode, force `requiredType: "video"` so the
+  // wait sticks until a real <video> source appears. Without this, Meta AI's
+  // <img> poster/thumbnail (.jpg) — which mounts ~hundreds of ms BEFORE the
+  // <video> element — fires the completion early and the auto-download grabs
+  // the poster JPG instead of the MP4. Symptom users see: "downloaded a JPG
+  // instead of MP4 for most items".
+  const itemMode = item.mode || state.mode;
+  const requiredType = itemMode === "image_to_video" ? "video"
+    : itemMode === "video" ? "video"
+    : itemMode === "image" ? "image"
+    : null;
   await log(`Item #${index + 1}: waiting for result (timeout ${settings.timeoutSec}s)`);
   const wait = await sendToTab(tab.id, {
     type: "WAIT_COMPLETION",
     baselineUrls: baseline,
     timeoutMs: Math.max(5, Number(settings.timeoutSec || 180)) * 1000,
+    requiredType,
   });
   if (!wait.ok) {
     return { ok: false, error: wait.error || "Timeout waiting for result" };
   }
 
-  const produced = (wait.payload && wait.payload.media) || [];
-  await log(`Item #${index + 1}: result detected (${produced.length} media)`);
+  const producedAll = (wait.payload && wait.payload.media) || [];
+  // In I2V (and VIDEO) mode, drop any non-video media that may have slipped
+  // through (e.g. a sibling poster <img> co-mounted with the <video>). The
+  // user explicitly requested "auto-download .mp4 only" for I2V — we honor
+  // that by filtering here, regardless of what the page exposes.
+  const produced = requiredType
+    ? producedAll.filter((m) => m.type === requiredType)
+    : producedAll;
+  await log(
+    `Item #${index + 1}: result detected (` +
+    `${produced.length}${requiredType ? ` ${requiredType}` : " media"}` +
+    `${producedAll.length !== produced.length ? `, ${producedAll.length - produced.length} skipped` : ""})`
+  );
 
   // 5) Auto-download if enabled
   if (settings.autoDownload && produced.length) {

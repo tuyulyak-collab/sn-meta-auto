@@ -25,13 +25,32 @@
     return { date: `${yyyy}${mm}${dd}`, time: `${hh}${mi}${ss}`, ts: String(now.getTime()) };
   }
 
+  // Image extensions we will NEVER use for a video download. If the caller
+  // says type=video but the URL ext looks like an image (poster URL, blob:
+  // thumbnail, CDN that strips ?type=video, etc.), we force .mp4. This is
+  // a hard guarantee for the I2V auto-download flow: the file the user
+  // gets on disk is always .mp4 when they asked for a video.
+  const IMAGE_EXTS = new Set(["jpg", "jpeg", "png", "webp", "gif", "bmp", "svg", "avif", "heic", "heif"]);
+  // Whitelist of video extensions we will trust if the URL exposes one.
+  // Anything else (or nothing) when type=video falls back to .mp4.
+  const VIDEO_EXTS = new Set(["mp4", "webm", "mov", "m4v", "mkv"]);
+
   function inferExt(url, type) {
+    let urlExt = null;
     try {
       const u = new URL(url);
       const m = u.pathname.match(/\.([a-zA-Z0-9]{1,5})(?:$|[?#])/);
-      if (m) return m[1].toLowerCase();
+      if (m) urlExt = m[1].toLowerCase();
     } catch (_) { /* ignore */ }
-    if (type === "video") return "mp4";
+    if (type === "video") {
+      if (urlExt && VIDEO_EXTS.has(urlExt)) return urlExt;
+      return "mp4";
+    }
+    if (type === "image") {
+      if (urlExt && IMAGE_EXTS.has(urlExt)) return urlExt;
+      return "png";
+    }
+    if (urlExt && (VIDEO_EXTS.has(urlExt) || IMAGE_EXTS.has(urlExt))) return urlExt;
     return "png";
   }
 
