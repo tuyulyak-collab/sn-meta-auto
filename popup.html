@@ -8,8 +8,28 @@
 <body>
   <header class="sn-header">
     <div class="sn-title-row">
+      <button id="btnExpand" class="sn-icon-btn" title="Expand" aria-label="Expand panel" hidden>
+        <span aria-hidden="true">+</span>
+      </button>
       <h1 class="sn-title">SN META AUTO</h1>
       <span class="sn-badge" id="statusBadge">IDLE</span>
+      <span class="sn-mini-counter" id="miniCounter" hidden>0/0 Done 0 Fail 0</span>
+      <div class="sn-menu-wrap">
+        <button id="btnMenu" class="sn-menu-btn" aria-haspopup="menu" aria-expanded="false">
+          MENU <span aria-hidden="true">&#9662;</span>
+        </button>
+        <div id="menuDropdown" class="sn-menu-dropdown" role="menu" hidden>
+          <button class="sn-menu-item" data-menu="minimize" role="menuitem">
+            <span class="sn-menu-glyph" aria-hidden="true">&#8211;</span> Minimize
+          </button>
+          <button class="sn-menu-item" data-menu="back" role="menuitem">
+            <span class="sn-menu-glyph" aria-hidden="true">&#8592;</span> Back to Main
+          </button>
+          <button class="sn-menu-item" data-menu="close" role="menuitem">
+            <span class="sn-menu-glyph" aria-hidden="true">&times;</span> Close Panel
+          </button>
+        </div>
+      </div>
     </div>
     <p class="sn-subtitle">Batch prompt assistant for Meta AI</p>
   </header>

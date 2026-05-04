@@ -11,7 +11,23 @@ const UI = {
   scannedSelection: new Set(),
   busyButtons: new Set(),
   lastState: null, // last rendered state — used by applyButtonStates after lock release
+  minimized: false, // popup compact mode (header-only). Persisted via sn_ui.
 };
+
+// Persisted UI prefs (separate key from sn_state and sn_settings to keep
+// concerns isolated — minimize is a per-user pref, not queue state).
+const UI_KEY = "sn_ui";
+async function loadUiPrefs() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(UI_KEY, (res) => resolve(res[UI_KEY] || {}));
+  });
+}
+async function saveUiPrefs(partial) {
+  const cur = await loadUiPrefs();
+  const next = Object.assign({}, cur, partial);
+  await new Promise((r) => chrome.storage.local.set({ [UI_KEY]: next }, r));
+  return next;
+}
 
 // Re-usable senders
 function send(msg) {
@@ -57,7 +73,10 @@ function applyButtonStates() {
   const start = $("#btnStart");
   const stop = $("#btnStop");
   const resume = $("#btnResume");
-  if (start) start.disabled = !!s.isRunning || UI.busyButtons.has(start);
+  // Block Start while still reading uploaded images — without this the
+  // user could click Start mid-upload and end up with a queue that's
+  // missing the trailing images that hadn't finished readAsDataURL yet.
+  if (start) start.disabled = !!s.isRunning || UI.busyButtons.has(start) || !!UI.uploadingImages;
   if (stop) stop.disabled = !s.isRunning || UI.busyButtons.has(stop);
   if (resume) resume.disabled = !!s.isRunning || !s.isPaused || UI.busyButtons.has(resume);
   // Buttons without state-driven disabled rules: only block during in-flight call.
@@ -121,6 +140,13 @@ function renderState(state) {
     if (allDone) { badge.textContent = "DONE"; badge.dataset.state = "done"; }
     else { badge.textContent = "IDLE"; badge.dataset.state = ""; }
   }
+
+  // mini counter (only visible while minimized)
+  const total = (state.queue || []).length;
+  const completed = state.completedCount || 0;
+  const failed = state.failedCount || 0;
+  const processed = completed + failed;
+  $("#miniCounter").textContent = `${processed}/${total} Done ${completed} Fail ${failed}`;
 
   // queue table
   const tbody = $("#queueTbody");
@@ -265,6 +291,34 @@ function setMode(mode) {
   $("#i2vPanel").hidden = mode !== "image_to_video";
 }
 
+// ---- menu + minimize ----
+function applyMinimized(min) {
+  UI.minimized = !!min;
+  document.body.classList.toggle("is-minimized", UI.minimized);
+  // Mini-counter and expand chip only visible in minimized state.
+  $("#miniCounter").hidden = !UI.minimized;
+  $("#btnExpand").hidden = !UI.minimized;
+  // Disable "Back to Main" in dropdown when already expanded; disable
+  // "Minimize" when already minimized. Avoids no-op clicks.
+  const back = document.querySelector('[data-menu="back"]');
+  const mini = document.querySelector('[data-menu="minimize"]');
+  if (back) back.disabled = !UI.minimized;
+  if (mini) mini.disabled = UI.minimized;
+}
+
+function toggleMenu(forceOpen) {
+  const dd = $("#menuDropdown");
+  const btn = $("#btnMenu");
+  const open = forceOpen != null ? !!forceOpen : dd.hidden;
+  dd.hidden = !open;
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+async function setMinimized(min) {
+  applyMinimized(min);
+  await saveUiPrefs({ minimized: !!min });
+}
+
 // ---- build queue from UI and push to background ----
 async function pushQueueFromUi() {
   const text = $("#promptTextarea").value;
@@ -311,13 +365,20 @@ async function pushQueueFromUi() {
     }));
   }
   const res = await send({ type: "SET_QUEUE", queue, mode, promptText: text });
+  if (!res.ok) {
+    // Surface the failure (e.g. chrome.storage.local QUOTA_BYTES exceeded
+    // when an I2V queue holds many big base64 image data URLs). Without
+    // this, Start would silently do nothing and the user only sees an
+    // empty queue table.
+    toast(res.error || "Failed to push queue");
+  }
   return res.ok;
 }
 
 // ---- init / binding ----
 async function init() {
   // Load persisted state
-  const [state, settings] = await Promise.all([getState(), getSettings()]);
+  const [state, settings, ui] = await Promise.all([getState(), getSettings(), loadUiPrefs()]);
 
   // textarea + promptText draft
   if (state.promptText) $("#promptTextarea").value = state.promptText;
@@ -328,6 +389,42 @@ async function init() {
 
   // Mode from state
   setMode(state.mode || "image");
+
+  // Apply persisted minimize state before any user input.
+  applyMinimized(!!ui.minimized);
+
+  // Header MENU dropdown
+  $("#btnMenu").addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMenu();
+  });
+  document.addEventListener("click", (e) => {
+    // Close dropdown when clicking outside.
+    const dd = $("#menuDropdown");
+    if (dd.hidden) return;
+    if (e.target.closest && (e.target.closest("#menuDropdown") || e.target.closest("#btnMenu"))) return;
+    toggleMenu(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") toggleMenu(false);
+  });
+  $$(".sn-menu-item").forEach((it) => {
+    it.addEventListener("click", async () => {
+      const action = it.dataset.menu;
+      toggleMenu(false);
+      if (action === "minimize") {
+        await setMinimized(true);
+      } else if (action === "back") {
+        await setMinimized(false);
+      } else if (action === "close") {
+        // Close popup. The run loop lives in background.js so the queue
+        // keeps running — only the UI window is dismissed.
+        window.close();
+      }
+    });
+  });
+  // Expand chip (visible only when minimized).
+  $("#btnExpand").addEventListener("click", () => setMinimized(false));
 
   // Settings
   $("#inputDelay").value = settings.delaySec ?? 3;
@@ -389,12 +486,24 @@ async function init() {
   $("#btnUploadImages").addEventListener("click", () => $("#fileImageInput").click());
   $("#fileImageInput").addEventListener("change", async (e) => {
     const files = Array.from(e.target.files || []);
-    for (const f of files) {
-      const dataUrl = await readAsDataUrl(f);
-      UI.images.push({ dataUrl, name: f.name });
+    if (!files.length) return;
+    UI.uploadingImages = true;
+    applyButtonStates();
+    try {
+      // Read in parallel — sequential awaits made bulk uploads of many
+      // large files unnecessarily slow and widened the race where a
+      // user could click Start before all dataUrls were appended.
+      const reads = await Promise.all(files.map(async (f) => ({
+        dataUrl: await readAsDataUrl(f),
+        name: f.name,
+      })));
+      for (const r of reads) UI.images.push(r);
+      renderImageCount();
+    } finally {
+      UI.uploadingImages = false;
+      e.target.value = "";
+      applyButtonStates();
     }
-    renderImageCount();
-    e.target.value = "";
   });
   $("#btnClearImages").addEventListener("click", () => { UI.images = []; renderImageCount(); });
 
