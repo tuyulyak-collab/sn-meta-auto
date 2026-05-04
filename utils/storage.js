@@ -14,6 +14,13 @@
     subfolder: "SN_Meta_Auto",
     stopOnError: false,
     autoDownload: false,
+    // Pause-and-rescan window (seconds) inserted between "result detected"
+    // and the actual auto-download in I2V/VIDEO mode. Meta AI mounts the
+    // <video> element a moment before its src settles to the final mp4 —
+    // grabbing the URL too early can yield a poster jpg or the user's
+    // uploaded seed image. 3s is a safe default; users with slow networks
+    // can bump it up from Settings.
+    videoSettleSec: 3,
   };
 
   const DEFAULT_STATE = {

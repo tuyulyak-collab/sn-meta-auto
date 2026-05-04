@@ -106,6 +106,10 @@
           <input type="checkbox" id="inputAutoDownload" />
           <span>Auto-download after each task</span>
         </label>
+        <label class="sn-field">
+          <span>Video settle delay (s)</span>
+          <input type="number" id="inputVideoSettle" min="0" step="1" value="3" />
+        </label>
       </div>
     </section>
 
@@ -141,6 +145,17 @@
         <button id="btnScanMedia" class="sn-btn sn-btn-secondary">Scan Media</button>
         <button id="btnDownloadSelected" class="sn-btn sn-btn-primary">Download Selected</button>
         <button id="btnDownloadAll" class="sn-btn sn-btn-success">Download All</button>
+      </div>
+      <div class="sn-row sn-media-toolbar">
+        <label class="sn-field sn-field-inline">
+          <span>Filter</span>
+          <select id="mediaFilter">
+            <option value="all">All</option>
+            <option value="image">Images only</option>
+            <option value="video">Videos only</option>
+          </select>
+        </label>
+        <span id="mediaCount" class="sn-counter">0 items</span>
       </div>
       <div id="mediaGrid" class="sn-media-grid"></div>
     </section>

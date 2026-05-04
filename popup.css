@@ -205,6 +205,26 @@ p { margin: 0; }
   border: var(--bw) solid var(--border);
 }
 
+/* Inline label+control wrapper used in the media-scanner toolbar so the
+   filter dropdown sits flush with the count chip on a single row. */
+.sn-field-inline {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.sn-field-inline span { margin-bottom: 0; }
+.sn-field-inline select {
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 6px;
+  border: var(--bw) solid var(--border);
+  background: #fff;
+}
+.sn-media-toolbar { margin-top: 0; }
+
 .sn-btn {
   font-family: inherit;
   font-weight: 900;

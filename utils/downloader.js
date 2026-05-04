@@ -103,7 +103,26 @@
     });
   }
 
-  const api = { pad, dateParts, inferExt, sanitize, renderFilename, buildFullPath, downloadOne };
+  // Returns true when the URL's path ends in an obviously-image extension
+  // (jpg, png, webp, …). Used by the I2V auto-download guard to refuse
+  // saving e.g. a poster jpg or the user's uploaded seed image when the
+  // queue item asked for a video. URLs without an extension (blob:, query
+  // strings, opaque CDN IDs) return false — the caller is expected to have
+  // already filtered to type=video by then, so an opaque URL is treated
+  // as a valid mp4 candidate.
+  function urlLooksLikeImage(url) {
+    if (!url) return false;
+    try {
+      const u = new URL(url);
+      const m = u.pathname.match(/\.([a-zA-Z0-9]{1,5})(?:$|[?#])/);
+      if (!m) return false;
+      return IMAGE_EXTS.has(m[1].toLowerCase());
+    } catch (_) {
+      return false;
+    }
+  }
+
+  const api = { pad, dateParts, inferExt, sanitize, renderFilename, buildFullPath, downloadOne, urlLooksLikeImage };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.SNDownloader = api;
 })(typeof self !== "undefined" ? self : this);
