@@ -35,8 +35,15 @@
   async function handleWaitCompletion(msg) {
     const baseline = Array.isArray(msg.baselineUrls) ? msg.baselineUrls : [];
     const timeout = Number(msg.timeoutMs) || 180000;
+    const requiredType = (msg.requiredType === "image" || msg.requiredType === "video")
+      ? msg.requiredType
+      : null;
     try {
-      const res = await DOM.waitForCompletion({ timeoutMs: timeout, baselineMediaUrls: baseline });
+      const res = await DOM.waitForCompletion({
+        timeoutMs: timeout,
+        baselineMediaUrls: baseline,
+        requiredType,
+      });
       return { ok: true, reason: res.reason, payload: res.payload };
     } catch (e) {
       return { ok: false, error: String((e && e.message) || e) };
