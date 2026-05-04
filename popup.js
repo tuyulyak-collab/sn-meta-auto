@@ -239,8 +239,14 @@ function renderScannedMedia() {
   visible.forEach((m) => {
     const cell = document.createElement("div");
     cell.className = "cell";
+    // Video cells preview live: autoplay muted in a loop so the user
+    // can scrub-by-glance which mp4 is which without clicking through.
+    // `playsinline` keeps it in the cell on iOS; `muted` is required for
+    // autoplay to fire under Chrome's autoplay policy. `disablepictureinpicture`
+    // and the empty controlsList stop accidental fullscreen/PiP from a
+    // stray click, since the cell already has a checkbox label on top.
     const thumb = m.type === "video"
-      ? `<video src="${m.url}" muted preload="metadata"></video>`
+      ? `<video src="${m.url}" autoplay loop muted playsinline preload="auto" disablepictureinpicture controlslist="nodownload nofullscreen noremoteplayback"></video>`
       : `<img src="${m.url}" alt="" />`;
     const checked = UI.scannedSelection.has(m.url) ? "checked" : "";
     cell.innerHTML = `
