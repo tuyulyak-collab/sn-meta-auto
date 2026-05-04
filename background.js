@@ -63,6 +63,20 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Trim a URL down to host + last path segment for log lines so a giant CDN
+// URL with query params doesn't dominate the popup log. Falls back to a
+// fixed-length slice if URL parsing fails (blob:, data:, etc.).
+function shortUrl(u) {
+  if (!u) return "";
+  try {
+    const x = new URL(u);
+    const last = x.pathname.split("/").filter(Boolean).pop() || "";
+    return last ? `${x.host}/…/${last}` : x.host;
+  } catch (_) {
+    return String(u).slice(0, 64);
+  }
+}
+
 async function findMetaTab() {
   return new Promise((resolve) => {
     chrome.tabs.query({ url: ["https://www.meta.ai/*", "https://*.meta.ai/*"] }, (tabs) => {
@@ -201,7 +215,7 @@ async function processOne(state, settings, index) {
   // through (e.g. a sibling poster <img> co-mounted with the <video>). The
   // user explicitly requested "auto-download .mp4 only" for I2V — we honor
   // that by filtering here, regardless of what the page exposes.
-  const produced = requiredType
+  let produced = requiredType
     ? producedAll.filter((m) => m.type === requiredType)
     : producedAll;
   await log(
@@ -210,10 +224,53 @@ async function processOne(state, settings, index) {
     `${producedAll.length !== produced.length ? `, ${producedAll.length - produced.length} skipped` : ""})`
   );
 
+  // 4b) Settle window for video downloads. Meta AI mounts the <video>
+  // element a moment before its src settles to the final .mp4 — at the
+  // exact instant `result detected` fires, currentSrc can still point to
+  // a poster jpg, a blob preview, or the user's uploaded seed image. We
+  // pause for `videoSettleSec`, re-scan, and pick the latest fresh video
+  // URL. Without this, auto-download grabs whatever URL the <video> was
+  // wearing at mount time. (User-reported bug: "auto-download i2v muncul
+  // setelah result detected" — i.e. it fires too early.)
+  if (settings.autoDownload && requiredType === "video" && produced.length) {
+    const settleMs = Math.max(0, Number(settings.videoSettleSec ?? 3)) * 1000;
+    if (settleMs > 0) {
+      await log(`Item #${index + 1}: video detected, settling ${settleMs}ms before download`);
+      await sleep(settleMs);
+      try {
+        const rescan = await sendToTab(tab.id, { type: "SCAN_MEDIA" });
+        if (rescan && rescan.ok && Array.isArray(rescan.media)) {
+          const baselineSet = new Set(baseline);
+          const freshVideos = rescan.media
+            .filter((m) => m.type === "video")
+            .filter((m) => !baselineSet.has(m.url));
+          if (freshVideos.length) {
+            produced = freshVideos;
+            await log(`Item #${index + 1}: post-settle: ${freshVideos.length} video URL(s) ready for download`);
+          } else {
+            await log(`Item #${index + 1}: post-settle re-scan returned no fresh videos, keeping original URL(s)`);
+          }
+        }
+      } catch (e) {
+        await log(`Item #${index + 1}: post-settle re-scan failed — ${(e && e.message) || e}`);
+      }
+    }
+  }
+
   // 5) Auto-download if enabled
   if (settings.autoDownload && produced.length) {
     for (let i = 0; i < produced.length; i++) {
       const m = produced[i];
+      // Hard guard: when the queue item asked for a video, refuse to
+      // download a URL whose ext is unambiguously an image. inferExt would
+      // happily save such a URL with a .mp4 filename and still produce a
+      // jpg on disk, since chrome.downloads writes whatever the server
+      // returns. Skipping with a warning is safer than silently saving the
+      // wrong file.
+      if (requiredType === "video" && D.urlLooksLikeImage(m.url)) {
+        await log(`Item #${index + 1}: refused to download non-video URL (${shortUrl(m.url)}) for a video task`);
+        continue;
+      }
       try {
         const filename = D.renderFilename(settings.filenamePattern, {
           type: m.type,
@@ -448,6 +505,37 @@ async function handleScanMediaForPopup() {
   return res;
 }
 
+// Re-open the toolbar popup. Called by the floating panel's close (×)
+// button so closing the overlay automatically returns the user to the
+// main menu. chrome.action.openPopup() is gated by Chrome:
+//   - It must be reachable from a user gesture (the click in the page
+//     doesn't propagate as a background-script user gesture, so this can
+//     fail silently on older Chrome — best-effort).
+//   - Available on stable Chrome 127+ for extensions.
+// On failure we fall back to setting a "1" badge as a soft cue, so the
+// user knows to click the toolbar icon themselves.
+async function handleOpenPopup() {
+  try {
+    if (chrome.action && typeof chrome.action.openPopup === "function") {
+      await chrome.action.openPopup();
+      return { ok: true };
+    }
+  } catch (e) {
+    // fall through to badge fallback
+  }
+  try {
+    if (chrome.action && chrome.action.setBadgeText) {
+      await chrome.action.setBadgeBackgroundColor({ color: "#FF4D00" });
+      await chrome.action.setBadgeText({ text: "1" });
+      // Auto-clear after 5s so the badge doesn't linger forever.
+      setTimeout(() => {
+        try { chrome.action.setBadgeText({ text: "" }); } catch (_) {}
+      }, 5000);
+    }
+  } catch (_) { /* nothing else we can do */ }
+  return { ok: false, error: "openPopup unsupported on this Chrome — click the toolbar icon" };
+}
+
 // Inject the floating overlay into the active meta.ai tab. Called from
 // the popup's MENU → Open Floating Panel. The injected script is
 // idempotent: if the panel already exists in the page, it just shows it
@@ -527,6 +615,7 @@ const HANDLERS = {
   CLEAR_LOGS: handleClearLogs,
   CLEAR_HISTORY: handleClearHistory,
   OPEN_FLOATING_PANEL: handleOpenFloatingPanel,
+  OPEN_POPUP: handleOpenPopup,
 };
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

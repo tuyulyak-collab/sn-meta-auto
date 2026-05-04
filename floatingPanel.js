@@ -108,14 +108,18 @@
     // ---- top card: title bar (drag handle, mode tag, close) ----
     const title = el("span", { class: "snfp-title" }, "SN META AUTO");
     const modeTag = el("span", { class: "snfp-mode-tag", "data-mode": "image" }, "IMAGE");
+    // Close button: just the × icon (no "CLOSE" text). Per the user spec,
+    // clicking this hides the overlay AND auto-reopens the toolbar popup
+    // so the user is returned to the main menu without an extra click on
+    // the toolbar icon.
     const closeBtn = el(
       "button",
       {
         class: "snfp-close",
-        title: "Close (does not stop the queue)",
+        title: "Close panel and return to main menu (queue keeps running)",
         "aria-label": "Close floating panel",
       },
-      "CLOSE \u00d7"
+      "\u00d7"
     );
     const headerCard = el(
       "div",
@@ -449,9 +453,20 @@
   attachDrag(parts.root, parts.header);
   wireControls(parts);
 
-  // Close button: hide only — must not affect queue.
+  // Close button: hide overlay (queue keeps running) AND ask the
+  // background to reopen the toolbar popup so the user lands back in the
+  // main menu. chrome.action.openPopup() is best-effort — if Chrome
+  // refuses (older versions, no user gesture), the background falls back
+  // to a badge cue and the user can still click the toolbar icon.
   parts.closeBtn.addEventListener("click", () => {
     parts.root.style.display = "none";
+    try {
+      chrome.runtime.sendMessage({ type: "OPEN_POPUP" }, () => {
+        // swallow lastError if no listener is attached
+        const _err = chrome.runtime && chrome.runtime.lastError;
+        void _err;
+      });
+    } catch (_) { /* extension context torn down — nothing to do */ }
   });
 
   // Initial render + live sync via chrome.storage.onChanged.

@@ -10,7 +10,12 @@ const UI = {
   mode: "image",
   images: [], // [{ dataUrl, name, prompt? }]
   scannedMedia: [],
+  // Selection is keyed by URL rather than array index so that flipping the
+  // media-type filter (which hides rows from .scannedMedia) doesn't silently
+  // toggle which items "Download Selected" will act on.
   scannedSelection: new Set(),
+  // Active client-side filter for the media scanner: "all" | "image" | "video".
+  mediaFilter: "all",
   busyButtons: new Set(),
   lastState: null, // last rendered state — used by applyButtonStates after lock release
 };
@@ -220,30 +225,45 @@ function renderHistory(history) {
   });
 }
 
+// Filter the scanned media list by the active type filter. Hidden items
+// keep their selection state so toggling the filter doesn't lose it.
+function visibleScannedMedia() {
+  if (UI.mediaFilter === "all") return UI.scannedMedia;
+  return UI.scannedMedia.filter((m) => m.type === UI.mediaFilter);
+}
+
 function renderScannedMedia() {
   const grid = $("#mediaGrid");
   grid.innerHTML = "";
-  UI.scannedMedia.forEach((m, i) => {
-    const id = `scan_${i}`;
+  const visible = visibleScannedMedia();
+  visible.forEach((m) => {
     const cell = document.createElement("div");
     cell.className = "cell";
     const thumb = m.type === "video"
       ? `<video src="${m.url}" muted preload="metadata"></video>`
       : `<img src="${m.url}" alt="" />`;
+    const checked = UI.scannedSelection.has(m.url) ? "checked" : "";
     cell.innerHTML = `
       ${thumb}
-      <label><input type="checkbox" data-sel="${i}" ${UI.scannedSelection.has(i) ? "checked" : ""}/> ${m.type.toUpperCase()}</label>
+      <label><input type="checkbox" data-url="${escapeHtml(m.url)}" ${checked}/> ${m.type.toUpperCase()}</label>
       <div class="meta">${m.width || "?"}×${m.height || "?"}</div>
     `;
     grid.appendChild(cell);
   });
-  grid.querySelectorAll("input[type=checkbox][data-sel]").forEach((cb) => {
+  grid.querySelectorAll("input[type=checkbox][data-url]").forEach((cb) => {
     cb.addEventListener("change", () => {
-      const i = Number(cb.dataset.sel);
-      if (cb.checked) UI.scannedSelection.add(i);
-      else UI.scannedSelection.delete(i);
+      const url = cb.dataset.url;
+      if (cb.checked) UI.scannedSelection.add(url);
+      else UI.scannedSelection.delete(url);
     });
   });
+  const counter = $("#mediaCount");
+  if (counter) {
+    const total = UI.scannedMedia.length;
+    counter.textContent = visible.length === total
+      ? `${total} item${total === 1 ? "" : "s"}`
+      : `${visible.length}/${total} shown`;
+  }
 }
 
 // ---- storage access ----
@@ -421,6 +441,14 @@ async function init() {
   $("#inputSubfolder").value = settings.subfolder ?? "SN_Meta_Auto";
   $("#inputStopOnError").checked = !!settings.stopOnError;
   $("#inputAutoDownload").checked = !!settings.autoDownload;
+  // videoSettleSec: how long the run loop waits after a <video> appears in
+  // I2V mode before grabbing the URL for auto-download. Meta AI mounts the
+  // <video> element a moment before the actual mp4 src settles, and a
+  // poster <img> for the user's *input* image can co-exist briefly. Giving
+  // the page a few seconds to settle and re-scanning is the most reliable
+  // way to ensure the downloaded URL is the generated mp4, not a poster
+  // jpg or the user's uploaded seed image.
+  $("#inputVideoSettle").value = settings.videoSettleSec ?? 3;
 
   // Settings wire-up
   const onSettingChange = async () => {
@@ -431,9 +459,10 @@ async function init() {
       subfolder: $("#inputSubfolder").value || "SN_Meta_Auto",
       stopOnError: $("#inputStopOnError").checked,
       autoDownload: $("#inputAutoDownload").checked,
+      videoSettleSec: Math.max(0, Number($("#inputVideoSettle").value) || 0),
     });
   };
-  ["#inputDelay","#inputTimeout","#inputFilenamePattern","#inputSubfolder","#inputStopOnError","#inputAutoDownload"].forEach((sel) => {
+  ["#inputDelay","#inputTimeout","#inputFilenamePattern","#inputSubfolder","#inputStopOnError","#inputAutoDownload","#inputVideoSettle"].forEach((sel) => {
     const el = $(sel);
     el.addEventListener("change", onSettingChange);
     el.addEventListener("input", onSettingChange);
@@ -523,12 +552,19 @@ async function init() {
     const res = await send({ type: "SCAN_MEDIA_POPUP" });
     if (!res.ok) { toast(res.error || "Scan failed"); return; }
     UI.scannedMedia = res.media || [];
-    UI.scannedSelection = new Set(UI.scannedMedia.map((_, i) => i)); // select all by default
+    // Select all visible items by default. Visibility is determined by the
+    // current type filter; switching filter later doesn't drop selections
+    // because we key the Set by URL (see scannedSelection comment).
+    UI.scannedSelection = new Set(visibleScannedMedia().map((m) => m.url));
     renderScannedMedia();
     toast(`Found ${UI.scannedMedia.length} media`);
   }));
   $("#btnDownloadSelected").addEventListener("click", withLock($("#btnDownloadSelected"), async () => {
-    const items = Array.from(UI.scannedSelection).map((i) => UI.scannedMedia[i]).filter(Boolean);
+    // Operate on the currently-visible+selected intersection so the user's
+    // intent ("download what's checked in this view") is preserved across
+    // filter changes.
+    const visible = visibleScannedMedia();
+    const items = visible.filter((m) => UI.scannedSelection.has(m.url));
     if (!items.length) { toast("Select media first"); return; }
     const settings = await getSettings();
     const res = await send({ type: "DOWNLOAD_MEDIA", items, settings });
@@ -536,12 +572,26 @@ async function init() {
     else toast(res.error || "Download failed");
   }));
   $("#btnDownloadAll").addEventListener("click", withLock($("#btnDownloadAll"), async () => {
-    if (!UI.scannedMedia.length) { toast("Scan first"); return; }
+    // "Download All" respects the active filter — if the user has "Videos
+    // only" picked, this downloads only the videos. The button label stays
+    // generic so the row doesn't grow when the filter changes.
+    const items = visibleScannedMedia();
+    if (!items.length) { toast(UI.scannedMedia.length ? "Nothing matches the active filter" : "Scan first"); return; }
     const settings = await getSettings();
-    const res = await send({ type: "DOWNLOAD_MEDIA", items: UI.scannedMedia, settings });
-    if (res.ok) toast(`Downloaded ${res.downloaded}/${UI.scannedMedia.length}`);
+    const res = await send({ type: "DOWNLOAD_MEDIA", items, settings });
+    if (res.ok) toast(`Downloaded ${res.downloaded}/${items.length}`);
     else toast(res.error || "Download failed");
   }));
+  // Media-type filter dropdown. Changes are pure UI — no storage write,
+  // no re-scan — so it's instant and survives until the popup closes.
+  const mediaFilterEl = $("#mediaFilter");
+  if (mediaFilterEl) {
+    mediaFilterEl.value = UI.mediaFilter;
+    mediaFilterEl.addEventListener("change", () => {
+      UI.mediaFilter = mediaFilterEl.value || "all";
+      renderScannedMedia();
+    });
+  }
 
   // Logs / history — route through background so all sn_state writes are
   // serialized in the service worker (no cross-process race with queue updates).

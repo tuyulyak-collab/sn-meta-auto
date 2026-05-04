@@ -66,20 +66,24 @@
   border: 2px solid #111;
   white-space: nowrap;
 }
+/* Close button: square icon-only (×). The user specifically asked for
+   the close affordance to be just the ✕ logo, no "CLOSE" text. */
 #sn-meta-auto-floating .snfp-close {
   all: unset;
   font-family: inherit;
   font-weight: 900;
-  font-size: 14px;
+  font-size: 18px;
   line-height: 1;
-  padding: 5px 12px;
+  width: 28px;
+  height: 28px;
   background: #fff;
   border: 2px solid #111;
   cursor: pointer;
   color: #111;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  flex: 0 0 auto;
 }
 #sn-meta-auto-floating .snfp-close:hover { background: #FF1744; color: #fff; }
 
