@@ -11,11 +11,24 @@ const UI = {
   scannedSelection: new Set(),
   busyButtons: new Set(),
   lastState: null, // last rendered state — used by applyButtonStates after lock release
-  minimized: false, // popup compact mode (header-only). Persisted via sn_ui.
+  // The popup runs in two contexts:
+  //  - Regular extension popup (from toolbar click) when ?mini is absent.
+  //  - Separate Chrome popup window (chrome.windows.create) when ?mini=1.
+  // The mini context renders #miniView and hides <main>; the OS window itself
+  // is what's draggable, so the user can park it anywhere on screen and it
+  // stays open even when they click outside (unlike the toolbar popup, which
+  // Chrome auto-closes on outside click).
+  isMiniWindow: new URLSearchParams(location.search).get("mini") === "1",
 };
 
-// Persisted UI prefs (separate key from sn_state and sn_settings to keep
-// concerns isolated — minimize is a per-user pref, not queue state).
+// Mini popup window dimensions — small enough to keep next to meta.ai,
+// large enough to fit the stats grid + 5-button control row + log line.
+const MINI_WINDOW_WIDTH = 480;
+const MINI_WINDOW_HEIGHT = 320;
+
+// sn_ui storage key holds the mini window ID so a second Minimize click
+// from the main popup can focus the existing mini window instead of
+// spawning a duplicate.
 const UI_KEY = "sn_ui";
 async function loadUiPrefs() {
   return new Promise((resolve) => {
@@ -123,30 +136,37 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// Compute the badge label/color from raw state fields.
+// Centralized so renderState (main view) and renderMiniView (mini window)
+// can both reuse it without duplicating the precedence rules.
+function computeBadge(state) {
+  if (state.isRunning) return { label: "RUNNING", state: "running" };
+  if (state.isPaused) return { label: "PAUSED", state: "paused" };
+  if (state.lastError) return { label: "ERROR", state: "error" };
+  const counts = countsOf(state.queue);
+  const allDone = state.queue && state.queue.length && counts.pending === 0 && counts.paused === 0 && counts.running === 0;
+  if (allDone) return { label: "DONE", state: "done" };
+  return { label: "IDLE", state: "" };
+}
+
+function setBadge(el, info) {
+  if (!el) return;
+  el.textContent = info.label;
+  el.dataset.state = info.state;
+}
+
 function renderState(state) {
   // counters
   $("#completedCount").textContent = String(state.completedCount || 0);
   $("#failedCount").textContent = String(state.failedCount || 0);
   $("#currentIndex").textContent = (state.currentIndex >= 0 ? String(state.currentIndex + 1) : "-");
 
-  // badge
-  const badge = $("#statusBadge");
-  if (state.isRunning) { badge.textContent = "RUNNING"; badge.dataset.state = "running"; }
-  else if (state.isPaused) { badge.textContent = "PAUSED"; badge.dataset.state = "paused"; }
-  else if (state.lastError) { badge.textContent = "ERROR"; badge.dataset.state = "error"; }
-  else {
-    const counts = countsOf(state.queue);
-    const allDone = state.queue && state.queue.length && counts.pending === 0 && counts.paused === 0 && counts.running === 0;
-    if (allDone) { badge.textContent = "DONE"; badge.dataset.state = "done"; }
-    else { badge.textContent = "IDLE"; badge.dataset.state = ""; }
-  }
+  // badge (top-of-popup chip)
+  const info = computeBadge(state);
+  setBadge($("#statusBadge"), info);
 
-  // mini counter (only visible while minimized)
-  const total = (state.queue || []).length;
-  const completed = state.completedCount || 0;
-  const failed = state.failedCount || 0;
-  const processed = completed + failed;
-  $("#miniCounter").textContent = `${processed}/${total} Done ${completed} Fail ${failed}`;
+  // Mini view (only rendered when this popup was opened with ?mini=1).
+  if (UI.isMiniWindow) renderMiniView(state, info);
 
   // queue table
   const tbody = $("#queueTbody");
@@ -289,21 +309,32 @@ function setMode(mode) {
   UI.mode = mode;
   $$(".sn-tab").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
   $("#i2vPanel").hidden = mode !== "image_to_video";
+  // Header chip mirrors the active mode in both main and mini views.
+  const tag = $("#modeTag");
+  if (tag) {
+    const labels = { image: "IMAGE", video: "VIDEO", image_to_video: "I2V" };
+    tag.textContent = labels[mode] || String(mode || "").toUpperCase();
+  }
 }
 
 // ---- menu + minimize ----
-function applyMinimized(min) {
-  UI.minimized = !!min;
-  document.body.classList.toggle("is-minimized", UI.minimized);
-  // Mini-counter and expand chip only visible in minimized state.
-  $("#miniCounter").hidden = !UI.minimized;
-  $("#btnExpand").hidden = !UI.minimized;
-  // Disable "Back to Main" in dropdown when already expanded; disable
-  // "Minimize" when already minimized. Avoids no-op clicks.
-  const back = document.querySelector('[data-menu="back"]');
-  const mini = document.querySelector('[data-menu="minimize"]');
-  if (back) back.disabled = !UI.minimized;
-  if (mini) mini.disabled = UI.minimized;
+// applyMiniContext sets up the body class and dropdown options based on
+// whether this popup is the regular toolbar popup (max view) or the
+// separate Chrome popup window (mini view, ?mini=1).
+function applyMiniContext() {
+  document.body.classList.toggle("is-minimized", UI.isMiniWindow);
+  $("#miniView").hidden = !UI.isMiniWindow;
+
+  // Menu items:
+  //   Main view  →  Minimize, Close Panel
+  //   Mini view  →  Back to Main, Close Panel
+  // The third item (whichever isn't applicable in this context) is hidden
+  // outright via the [hidden] attribute, not just disabled, because the
+  // mockup wants a tight 2-item menu in each context.
+  const minimizeItem = document.querySelector('[data-menu="minimize"]');
+  const backItem = document.querySelector('[data-menu="back"]');
+  if (minimizeItem) minimizeItem.hidden = UI.isMiniWindow;
+  if (backItem) backItem.hidden = !UI.isMiniWindow;
 }
 
 function toggleMenu(forceOpen) {
@@ -314,9 +345,131 @@ function toggleMenu(forceOpen) {
   btn.setAttribute("aria-expanded", open ? "true" : "false");
 }
 
-async function setMinimized(min) {
-  applyMinimized(min);
-  await saveUiPrefs({ minimized: !!min });
+// Open (or focus) the mini popup window. Called from the main popup's
+// MENU → Minimize. Closes the current popup so the user is left with
+// only the draggable mini window.
+async function openMiniWindow() {
+  const ui = await loadUiPrefs();
+  // If a previous mini window is still around, focus it instead of
+  // spawning a duplicate. chrome.windows.get returns an error for
+  // missing windows, which we treat as "open a fresh one".
+  if (ui.miniWindowId) {
+    const exists = await new Promise((resolve) => {
+      chrome.windows.get(ui.miniWindowId, (w) => {
+        resolve(!chrome.runtime.lastError && w);
+      });
+    });
+    if (exists) {
+      chrome.windows.update(ui.miniWindowId, { focused: true });
+      window.close();
+      return;
+    }
+  }
+  const url = chrome.runtime.getURL("popup.html?mini=1");
+  await new Promise((resolve) => {
+    chrome.windows.create({
+      url,
+      type: "popup",
+      width: MINI_WINDOW_WIDTH,
+      height: MINI_WINDOW_HEIGHT,
+      focused: true,
+    }, async (win) => {
+      if (!win) return resolve();
+      await saveUiPrefs({ miniWindowId: win.id });
+      // Some Chrome configurations (e.g. last session was maximized, or
+      // launch flags like --start-maximized) cause windows.create to
+      // ignore width/height and open the popup full-screen. Force a
+      // normal-state resize as a follow-up so the user actually gets a
+      // compact draggable panel.
+      chrome.windows.update(win.id, {
+        state: "normal",
+        width: MINI_WINDOW_WIDTH,
+        height: MINI_WINDOW_HEIGHT,
+      }, () => {
+        // swallow any "no such window" lastError if user closed it instantly
+        const _e = chrome.runtime && chrome.runtime.lastError; void _e;
+        resolve();
+      });
+    });
+  });
+  window.close();
+}
+
+// Mini → Main. Best effort: ask Chrome to open the toolbar popup, then
+// close the mini window. chrome.action.openPopup is supported in MV3
+// from Chrome 127+; on older builds it's a no-op and the user just
+// re-clicks the toolbar icon — acceptable fallback.
+async function backToMain() {
+  await saveUiPrefs({ miniWindowId: null });
+  try {
+    if (chrome.action && typeof chrome.action.openPopup === "function") {
+      chrome.action.openPopup();
+    }
+  } catch (_) { /* ignore — fallback is toolbar click */ }
+  window.close();
+}
+
+// ---- mini view rendering + button wiring ----
+function statusTextFor(state, info) {
+  if (state.lastError) return state.lastError;
+  if (info.state === "running") {
+    const cur = state.currentIndex >= 0 ? state.currentIndex + 1 : 0;
+    const total = (state.queue || []).length;
+    return cur && total ? `Memproses item ${cur}/${total}` : "Memproses...";
+  }
+  if (info.state === "paused") return "Dijeda — klik RESUME untuk lanjut";
+  if (info.state === "done") return "Semua tugas selesai";
+  const total = (state.queue || []).length;
+  if (total === 0) return "Tidak ada tugas dalam antrean";
+  return "Siap menjalankan tugas";
+}
+
+function renderMiniView(state, info) {
+  const completed = state.completedCount || 0;
+  const failed = state.failedCount || 0;
+  const total = (state.queue || []).length;
+  const current = state.currentIndex >= 0 ? state.currentIndex + 1 : 0;
+  const processed = completed + failed;
+  const percent = total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+
+  $("#miniDone").textContent = String(completed);
+  $("#miniFail").textContent = String(failed);
+  $("#miniCurrent").textContent = String(current);
+  $("#miniProgressFill").style.width = percent + "%";
+  $("#miniProgressLabel").textContent = percent + "%";
+
+  setBadge($("#miniBadge"), info);
+  $("#miniStatusText").textContent = statusTextFor(state, info);
+
+  // Update mini control button disabled states. Mirror applyButtonStates
+  // logic so the user gets the same affordances in both views.
+  const isRunning = !!state.isRunning;
+  const isPaused = !!state.isPaused;
+  const failedExists = (state.queue || []).some((q) => q.status === "failed");
+  const runningItem = (state.queue || []).find((q) => q.status === "running" || q.status === "paused");
+
+  const miniStart = $("#miniBtnStart");
+  const miniStop = $("#miniBtnStop");
+  const miniResume = $("#miniBtnResume");
+  const miniRetry = $("#miniBtnRetry");
+  const miniSkip = $("#miniBtnSkip");
+  // Start: enabled only when not running and there are queue items at all.
+  // The user explicitly asked for the controls in mini view to drive the
+  // existing queue, so we don't accept new prompts/images here — just
+  // resume work on whatever's already in sn_state.
+  if (miniStart) miniStart.disabled = isRunning || total === 0 || (processed >= total && total > 0);
+  if (miniStop) miniStop.disabled = !isRunning;
+  if (miniResume) miniResume.disabled = isRunning || !isPaused;
+  if (miniRetry) miniRetry.disabled = !failedExists;
+  if (miniSkip) miniSkip.disabled = !runningItem;
+}
+
+function renderMiniLog(logs) {
+  const last = (logs || []).slice(-1)[0];
+  const el = $("#miniLog");
+  if (!el) return;
+  if (last) el.textContent = `[${last.ts}] ${last.msg}`;
+  else el.textContent = "[--:--:--] No activity yet.";
 }
 
 // ---- build queue from UI and push to background ----
@@ -377,21 +530,23 @@ async function pushQueueFromUi() {
 
 // ---- init / binding ----
 async function init() {
-  // Load persisted state
-  const [state, settings, ui] = await Promise.all([getState(), getSettings(), loadUiPrefs()]);
+  // Decide mini-vs-main context first; some renderers branch on UI.isMiniWindow.
+  applyMiniContext();
 
-  // textarea + promptText draft
+  // Load persisted state
+  const [state, settings] = await Promise.all([getState(), getSettings()]);
+
+  // textarea + promptText draft (only matters in main view, but mini view
+  // also writes through main's element since it lives in the same DOM).
   if (state.promptText) $("#promptTextarea").value = state.promptText;
   renderPromptCount();
   renderState(state);
   renderLogs(state.logs);
+  renderMiniLog(state.logs);
   renderHistory(state.history);
 
   // Mode from state
   setMode(state.mode || "image");
-
-  // Apply persisted minimize state before any user input.
-  applyMinimized(!!ui.minimized);
 
   // Header MENU dropdown
   $("#btnMenu").addEventListener("click", (e) => {
@@ -413,18 +568,25 @@ async function init() {
       const action = it.dataset.menu;
       toggleMenu(false);
       if (action === "minimize") {
-        await setMinimized(true);
+        // Spawn a draggable Chrome popup window in mini mode.
+        await openMiniWindow();
       } else if (action === "back") {
-        await setMinimized(false);
+        // Re-open the main toolbar popup, close this mini window.
+        await backToMain();
       } else if (action === "close") {
         // Close popup. The run loop lives in background.js so the queue
         // keeps running — only the UI window is dismissed.
+        if (UI.isMiniWindow) await saveUiPrefs({ miniWindowId: null });
         window.close();
       }
     });
   });
-  // Expand chip (visible only when minimized).
-  $("#btnExpand").addEventListener("click", () => setMinimized(false));
+
+  // Mini view button wiring — each button drives the same queue commands
+  // used by the main view, but resolved via direct send() calls so the
+  // main #btnStart click handler (which would also try to push the
+  // textarea queue) doesn't run from the mini context.
+  if (UI.isMiniWindow) wireMiniControls();
 
   // Settings
   $("#inputDelay").value = settings.delaySec ?? 3;
@@ -577,6 +739,7 @@ async function init() {
       const ns = changes.sn_state.newValue || {};
       renderState(ns);
       renderLogs(ns.logs || []);
+      renderMiniLog(ns.logs || []);
       renderHistory(ns.history || []);
     }
   });
@@ -586,9 +749,56 @@ async function init() {
       getState().then((s) => {
         renderState(s);
         renderLogs(s.logs || []);
+        renderMiniLog(s.logs || []);
         renderHistory(s.history || []);
       });
     }
+  });
+}
+
+// Mini view button handlers. Routed straight through send() rather than
+// dispatching click() on the main #btnStart, because the main Start
+// handler also runs pushQueueFromUi() (which expects the textarea + I2V
+// uploader UI). Mini view never edits the queue — it just controls the
+// already-pushed sn_state.queue.
+function wireMiniControls() {
+  const start = $("#miniBtnStart");
+  const stop = $("#miniBtnStop");
+  const resume = $("#miniBtnResume");
+  const retry = $("#miniBtnRetry");
+  const skip = $("#miniBtnSkip");
+
+  if (start) start.addEventListener("click", async () => {
+    start.disabled = true;
+    const res = await send({ type: "START" });
+    if (!res.ok) toast(res.error || "Start failed");
+  });
+  if (stop) stop.addEventListener("click", async () => {
+    stop.disabled = true;
+    const res = await send({ type: "STOP" });
+    if (!res.ok) toast(res.error || "Stop failed");
+  });
+  if (resume) resume.addEventListener("click", async () => {
+    resume.disabled = true;
+    const res = await send({ type: "RESUME" });
+    if (!res.ok) toast(res.error || "Resume failed");
+  });
+  if (retry) retry.addEventListener("click", async () => {
+    retry.disabled = true;
+    const res = await send({ type: "RETRY_FAILED" });
+    if (!res.ok) toast(res.error || "Retry failed");
+  });
+  if (skip) skip.addEventListener("click", async () => {
+    // Skip the currently running/paused item, falling back to the first
+    // pending one if no item is in-flight (e.g. user paused before Start).
+    const state = await getState();
+    const target =
+      (state.queue || []).find((q) => q.status === "running" || q.status === "paused") ||
+      (state.queue || []).find((q) => q.status === "pending");
+    if (!target) { toast("No item to skip"); return; }
+    skip.disabled = true;
+    const res = await send({ type: "ITEM_ACTION", action: "skip", id: target.id });
+    if (!res.ok) toast(res.error || "Skip failed");
   });
 }
 

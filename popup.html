@@ -8,12 +8,9 @@
 <body>
   <header class="sn-header">
     <div class="sn-title-row">
-      <button id="btnExpand" class="sn-icon-btn" title="Expand" aria-label="Expand panel" hidden>
-        <span aria-hidden="true">+</span>
-      </button>
       <h1 class="sn-title">SN META AUTO</h1>
+      <span class="sn-mode-tag" id="modeTag">IMAGE</span>
       <span class="sn-badge" id="statusBadge">IDLE</span>
-      <span class="sn-mini-counter" id="miniCounter" hidden>0/0 Done 0 Fail 0</span>
       <div class="sn-menu-wrap">
         <button id="btnMenu" class="sn-menu-btn" aria-haspopup="menu" aria-expanded="false">
           MENU <span aria-hidden="true">&#9662;</span>
@@ -22,7 +19,7 @@
           <button class="sn-menu-item" data-menu="minimize" role="menuitem">
             <span class="sn-menu-glyph" aria-hidden="true">&#8211;</span> Minimize
           </button>
-          <button class="sn-menu-item" data-menu="back" role="menuitem">
+          <button class="sn-menu-item" data-menu="back" role="menuitem" hidden>
             <span class="sn-menu-glyph" aria-hidden="true">&#8592;</span> Back to Main
           </button>
           <button class="sn-menu-item" data-menu="close" role="menuitem">
@@ -33,6 +30,48 @@
     </div>
     <p class="sn-subtitle">Batch prompt assistant for Meta AI</p>
   </header>
+
+  <!-- Mini view: rendered only when popup is loaded with ?mini=1
+       (a separate Chrome popup window opened via chrome.windows.create).
+       Stays open even when user clicks elsewhere; can be dragged like
+       a real OS window. Mirrors the maximize state via chrome.storage. -->
+  <section id="miniView" class="sn-mini-view" hidden>
+    <div class="sn-mini-status-row">
+      <span class="sn-badge" id="miniBadge">IDLE</span>
+      <span class="sn-mini-status-text" id="miniStatusText">Siap menjalankan tugas</span>
+    </div>
+    <div class="sn-mini-stats">
+      <div class="sn-stat">
+        <span class="sn-stat-icon ok" aria-hidden="true">&#10003;</span>
+        <span class="sn-stat-label">DONE</span>
+        <span class="sn-stat-num" id="miniDone">0</span>
+      </div>
+      <div class="sn-stat">
+        <span class="sn-stat-icon fail" aria-hidden="true">&times;</span>
+        <span class="sn-stat-label">FAIL</span>
+        <span class="sn-stat-num" id="miniFail">0</span>
+      </div>
+      <div class="sn-stat">
+        <span class="sn-stat-icon cur" aria-hidden="true">&#9654;</span>
+        <span class="sn-stat-label">CURRENT</span>
+        <span class="sn-stat-num" id="miniCurrent">0</span>
+      </div>
+    </div>
+    <div class="sn-mini-progress">
+      <div class="sn-mini-progress-track">
+        <div class="sn-mini-progress-fill" id="miniProgressFill" style="width:0%"></div>
+      </div>
+      <span class="sn-mini-progress-label" id="miniProgressLabel">0%</span>
+    </div>
+    <div class="sn-mini-controls">
+      <button id="miniBtnStart" class="sn-mini-ctrl start">START</button>
+      <button id="miniBtnStop" class="sn-mini-ctrl stop">STOP</button>
+      <button id="miniBtnResume" class="sn-mini-ctrl resume">RESUME</button>
+      <button id="miniBtnRetry" class="sn-mini-ctrl retry">RETRY</button>
+      <button id="miniBtnSkip" class="sn-mini-ctrl skip">SKIP</button>
+    </div>
+    <div class="sn-mini-log" id="miniLog">[--:--:--] Ready.</div>
+  </section>
 
   <main>
     <!-- Section 1: Prompt Queue -->
