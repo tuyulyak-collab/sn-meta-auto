@@ -246,11 +246,14 @@ async function runLoop() {
       return;
     }
 
-    const isI2V = state0.mode === "image_to_video";
-    const maxThisRun = isI2V ? Math.max(1, Number(settings.maxBatch || 10)) : Number.POSITIVE_INFINITY;
-    let runCount = 0;
-
-    while (!RT.stopRequested && runCount < maxThisRun) {
+    // The previous I2V "max 10 per run" cap forced the user to manually
+    // click Resume after every 10 items. That's gone now — the queue
+    // auto-continues until it's empty or the user requests Stop. The
+    // `delaySec` setting still spaces out individual items so we don't
+    // hammer Meta AI's UI; that's the only rate control we honor in the
+    // happy path. Real failures still fall through to the failed/stopOnError
+    // branch below, which preserves the existing behavior.
+    while (!RT.stopRequested) {
       const freshState = await S.getState();
       const idx = Q.nextPendingIndex(freshState.queue, 0);
       if (idx < 0) break;
@@ -292,7 +295,6 @@ async function runLoop() {
         }
       }
 
-      runCount += 1;
       broadcast({ type: "STATE_UPDATED" });
 
       if (RT.stopRequested) break;
@@ -300,7 +302,6 @@ async function runLoop() {
       // Is there more to do this run?
       const peek = await S.getState();
       if (Q.nextPendingIndex(peek.queue, 0) < 0) break;
-      if (runCount >= maxThisRun) break;
 
       const d = Math.max(0, Number(settings.delaySec || 3));
       if (d > 0) {
@@ -447,6 +448,29 @@ async function handleScanMediaForPopup() {
   return res;
 }
 
+// Inject the floating overlay into the active meta.ai tab. Called from
+// the popup's MENU → Open Floating Panel. The injected script is
+// idempotent: if the panel already exists in the page, it just shows it
+// again instead of duplicating.
+async function handleOpenFloatingPanel() {
+  const tab = await findMetaTab();
+  if (!tab) return { ok: false, error: "Meta AI tab not found. Open https://www.meta.ai/ first." };
+  // Make sure the page is meta.ai (chrome.scripting.executeScript will
+  // refuse on non-host_permissions URLs, but we want a friendly error).
+  if (!/^https:\/\/(?:[^/]*\.)?meta\.ai\//.test(tab.url || "")) {
+    return { ok: false, error: "Open https://www.meta.ai/ first, then re-open the floating panel." };
+  }
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: ["floatingPanel.js"],
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+
 async function handleSavePromptText({ promptText }) {
   // Single-process write through saveState so concurrent queue progress
   // updates from the run loop don't get clobbered by popup keystrokes.
@@ -502,6 +526,7 @@ const HANDLERS = {
   SAVE_PROMPT_TEXT: handleSavePromptText,
   CLEAR_LOGS: handleClearLogs,
   CLEAR_HISTORY: handleClearHistory,
+  OPEN_FLOATING_PANEL: handleOpenFloatingPanel,
 };
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

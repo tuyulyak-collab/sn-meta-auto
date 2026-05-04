@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "SN Meta Auto",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Batch prompt automation for Meta AI (image/video/image-to-video) + media scan & download.",
   "action": {
     "default_title": "SN Meta Auto",
@@ -47,7 +47,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["icons/*"],
+      "resources": ["icons/*", "floatingPanel.css"],
       "matches": ["https://*.meta.ai/*"]
     }
   ]

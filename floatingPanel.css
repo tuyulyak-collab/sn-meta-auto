@@ -1,0 +1,207 @@
+/* floatingPanel.css
+ * Styles for the SN Meta Auto floating overlay injected into meta.ai.
+ * All rules are scoped under #sn-meta-auto-floating so they can't leak into
+ * the host page (or vice versa). Visual language matches popup.css
+ * (brutalist black borders + hard shadows) but tuned for a compact overlay.
+ */
+
+#sn-meta-auto-floating {
+  /* Reset host inheritance — meta.ai sets a lot of inherited styles. */
+  all: initial;
+  position: fixed;
+  z-index: 2147483640; /* above almost any host UI but below browser chrome */
+  font-family: Inter, Arial, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #111;
+  width: 280px;
+  background: #FFF7D6;
+  border: 3px solid #111;
+  box-shadow: 6px 6px 0 #111;
+  padding: 8px 10px 10px;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Default position is set inline by floatingPanel.js — top-right inside
+     the meta.ai viewport. Persisted drag position overrides it. */
+}
+
+#sn-meta-auto-floating *,
+#sn-meta-auto-floating *::before,
+#sn-meta-auto-floating *::after {
+  box-sizing: border-box;
+}
+
+#sn-meta-auto-floating .snfp-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: grab;
+}
+#sn-meta-auto-floating .snfp-header.dragging { cursor: grabbing; }
+#sn-meta-auto-floating .snfp-title {
+  font-weight: 900;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex: 1 1 auto;
+}
+#sn-meta-auto-floating .snfp-close {
+  all: unset;
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 14px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  text-align: center;
+  background: #fff;
+  border: 2px solid #111;
+  cursor: pointer;
+  color: #111;
+}
+#sn-meta-auto-floating .snfp-close:hover { background: #FF1744; color: #fff; }
+
+#sn-meta-auto-floating .snfp-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#sn-meta-auto-floating .snfp-badge {
+  font-weight: 900;
+  font-size: 10px;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  background: #F9D923;
+  border: 2px solid #111;
+  letter-spacing: 0.5px;
+  color: #111;
+}
+#sn-meta-auto-floating .snfp-badge[data-state="running"]   { background: #00D1FF; }
+#sn-meta-auto-floating .snfp-badge[data-state="paused"]    { background: #F9D923; }
+#sn-meta-auto-floating .snfp-badge[data-state="error"],
+#sn-meta-auto-floating .snfp-badge[data-state="failed"]    { background: #FF1744; color: #fff; }
+#sn-meta-auto-floating .snfp-badge[data-state="done"],
+#sn-meta-auto-floating .snfp-badge[data-state="completed"] { background: #00C853; color: #fff; }
+#sn-meta-auto-floating .snfp-status-text {
+  flex: 1 1 auto;
+  font-size: 10px;
+  font-weight: 700;
+  color: #111;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sn-meta-auto-floating .snfp-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+#sn-meta-auto-floating .snfp-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: #fff;
+  border: 2px solid #111;
+}
+#sn-meta-auto-floating .snfp-stat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #111;
+  font-weight: 900;
+  font-size: 10px;
+  flex: 0 0 auto;
+  color: #111;
+}
+#sn-meta-auto-floating .snfp-stat-icon.ok   { background: #00C853; color: #fff; }
+#sn-meta-auto-floating .snfp-stat-icon.fail { background: #FF1744; color: #fff; }
+#sn-meta-auto-floating .snfp-stat-icon.cur  { background: #00D1FF; color: #111; }
+#sn-meta-auto-floating .snfp-stat-label {
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: #6b6b6b;
+  flex: 1 1 auto;
+}
+#sn-meta-auto-floating .snfp-stat-num {
+  font-size: 13px;
+  font-weight: 900;
+  color: #111;
+  margin-left: auto;
+}
+
+#sn-meta-auto-floating .snfp-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+#sn-meta-auto-floating .snfp-progress-track {
+  flex: 1 1 auto;
+  height: 10px;
+  background: #fff;
+  border: 2px solid #111;
+  position: relative;
+  overflow: hidden;
+}
+#sn-meta-auto-floating .snfp-progress-fill {
+  height: 100%;
+  background: #FF4D00;
+  width: 0%;
+  transition: width 200ms ease-out;
+}
+#sn-meta-auto-floating .snfp-progress-label {
+  font-size: 10px;
+  font-weight: 900;
+  min-width: 32px;
+  text-align: right;
+  color: #111;
+}
+
+#sn-meta-auto-floating .snfp-controls {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+#sn-meta-auto-floating .snfp-btn {
+  all: unset;
+  font-family: inherit;
+  font-weight: 900;
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  padding: 6px 4px;
+  border: 2px solid #111;
+  background: #fff;
+  color: #111;
+  cursor: pointer;
+  text-align: center;
+}
+#sn-meta-auto-floating .snfp-btn:hover:not([disabled]) { transform: translate(-1px, -1px); }
+#sn-meta-auto-floating .snfp-btn[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+#sn-meta-auto-floating .snfp-btn.start  { background: #00C853; color: #fff; }
+#sn-meta-auto-floating .snfp-btn.stop   { background: #F9D923; }
+#sn-meta-auto-floating .snfp-btn.resume { background: #B6E5C2; }
+#sn-meta-auto-floating .snfp-btn.retry  { background: #F5B7A6; }
+#sn-meta-auto-floating .snfp-btn.skip   { background: #C8C2A8; }
+
+#sn-meta-auto-floating .snfp-log {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  background: #111;
+  color: #E5FF00;
+  border: 2px solid #111;
+  padding: 4px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
