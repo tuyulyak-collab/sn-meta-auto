@@ -69,9 +69,19 @@
     return `${sub}/${filename}`;
   }
 
+  function canDownloadUrl(url) {
+    const raw = String(url || "").trim();
+    if (/^https?:\/\//i.test(raw)) return { ok: true, reason: "direct_http" };
+    if (/^blob:/i.test(raw)) return { ok: false, reason: "Preview is a blob/stream URL, not a direct file URL." };
+    if (/^data:/i.test(raw)) return { ok: false, reason: "Data URLs are skipped." };
+    return { ok: false, reason: "Unsupported media URL scheme." };
+  }
+
   function downloadOne({ url, filename, conflictAction = "uniquify" }) {
     return new Promise((resolve, reject) => {
       try {
+        const check = canDownloadUrl(url);
+        if (!check.ok) return reject(new Error(check.reason));
         chrome.downloads.download({ url, filename, conflictAction, saveAs: false }, (id) => {
           const err = chrome.runtime && chrome.runtime.lastError;
           if (err) return reject(new Error(err.message || String(err)));
@@ -84,7 +94,7 @@
     });
   }
 
-  const api = { pad, dateParts, inferExt, sanitize, renderFilename, buildFullPath, downloadOne };
+  const api = { pad, dateParts, inferExt, sanitize, renderFilename, buildFullPath, canDownloadUrl, downloadOne };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.SNDownloader = api;
 })(typeof self !== "undefined" ? self : this);

@@ -336,43 +336,112 @@
     return new File([arr], filename || "upload", { type: mime });
   }
 
+  function classifyMediaUrl(url) {
+    const raw = String(url || "").trim();
+    if (!raw) return { scheme: "", directDownloadable: false, reason: "empty_url" };
+    if (/^https?:\/\//i.test(raw)) {
+      return { scheme: raw.split(":", 1)[0].toLowerCase(), directDownloadable: true, reason: "direct_http" };
+    }
+    if (/^blob:/i.test(raw)) {
+      return { scheme: "blob", directDownloadable: false, reason: "blob_url_not_downloadable_from_extension" };
+    }
+    if (/^data:/i.test(raw)) {
+      return { scheme: "data", directDownloadable: false, reason: "data_url_skipped" };
+    }
+    return { scheme: "other", directDownloadable: false, reason: "unsupported_url_scheme" };
+  }
+
+  function pickMediaUrl(node) {
+    if (!node) return "";
+    const directAttrs = ["currentSrc", "src", "href", "poster"];
+    for (const attr of directAttrs) {
+      const val = node[attr] || "";
+      if (val && classifyMediaUrl(val).directDownloadable) return val;
+    }
+    if (node.querySelector) {
+      const source = node.querySelector("source[src]");
+      if (source) return pickMediaUrl(source);
+    }
+    const anyVal = directAttrs.map((attr) => node[attr] || "").find(Boolean);
+    if (anyVal) return anyVal;
+    return "";
+  }
+
+  function mediaNameFromNode(node) {
+    if (!node) return "";
+    return (
+      node.getAttribute("alt") ||
+      node.getAttribute("aria-label") ||
+      node.getAttribute("title") ||
+      node.getAttribute("data-testid") ||
+      ""
+    ).trim();
+  }
+
+  function looksLikeMediaHref(url) {
+    try {
+      const u = new URL(url, location.href);
+      return /\.(mp4|webm|mov|m4v|jpg|jpeg|png|webp|gif)(?:$|[?#])/i.test(u.pathname);
+    } catch (_) {
+      return false;
+    }
+  }
+
   function collectMedia() {
     const out = [];
     const seen = new Set();
-    function push(type, url, node) {
+    function push(type, url, node, source) {
       if (!url || seen.has(url)) return;
       seen.add(url);
       let w = 0, h = 0;
       try { const r = node.getBoundingClientRect(); w = Math.round(r.width); h = Math.round(r.height); } catch (_) {}
-      out.push({ type, url, width: w, height: h });
+      const info = classifyMediaUrl(url);
+      out.push({
+        type,
+        url,
+        width: w,
+        height: h,
+        source: source || "",
+        label: mediaNameFromNode(node),
+        scheme: info.scheme,
+        directDownloadable: info.directDownloadable,
+        reason: info.reason,
+      });
     }
 
     // High-confidence selectors first: Meta AI tags generated media with
     // data-testid="generated-image" / "generated-video" — these are
     // strictly the model output, not avatars or UI icons.
     for (const img of queryAllDeep('img[data-testid="generated-image"]')) {
-      const src = img.currentSrc || img.src || "";
+      const src = pickMediaUrl(img);
       if (src) push("image", src, img);
     }
     for (const v of queryAllDeep('video[data-testid="generated-video"], [data-testid="generated-video"] video')) {
-      const src = v.currentSrc || v.src || (v.querySelector && v.querySelector("source") && v.querySelector("source").src) || "";
-      if (src) push("video", src, v);
+      const src = pickMediaUrl(v);
+      if (src) push("video", src, v, "generated-video");
     }
 
     // images (fallback for non-tagged variants)
     for (const img of queryAllDeep("img")) {
-      const src = img.currentSrc || img.src || "";
+      const src = pickMediaUrl(img);
       if (!src) continue;
       if (src.startsWith("data:") && src.length < 1024) continue; // skip tiny data URIs
       // skip obvious icons
       const rect = img.getBoundingClientRect();
       if (rect.width < 80 || rect.height < 80) continue;
-      push("image", src, img);
+      push("image", src, img, "img");
     }
     // videos
     for (const v of queryAllDeep("video")) {
-      const src = v.currentSrc || v.src || (v.querySelector("source") && v.querySelector("source").src) || "";
-      if (src) push("video", src, v);
+      const src = pickMediaUrl(v);
+      if (src) push("video", src, v, "video");
+    }
+    // direct media links that Meta exposes in the page
+    for (const a of queryAllDeep("a[href]")) {
+      const href = a.href || "";
+      if (!looksLikeMediaHref(href)) continue;
+      const extIsVideo = /\.(mp4|webm|mov|m4v)(?:$|[?#])/i.test(new URL(href, location.href).pathname);
+      push(extIsVideo ? "video" : "image", href, a, "link");
     }
     // background-image
     for (const el of queryAllDeep('[style*="background-image"]')) {
@@ -380,7 +449,7 @@
       const m = /url\((['"]?)([^'"\)]+)\1\)/.exec(style);
       if (m && /^https?:/.test(m[2])) {
         const rect = el.getBoundingClientRect();
-        if (rect.width >= 80 && rect.height >= 80) push("image", m[2], el);
+        if (rect.width >= 80 && rect.height >= 80) push("image", m[2], el, "background-image");
       }
     }
     return out;
@@ -443,6 +512,7 @@
     findFileInput,
     setFilesOnInput,
     dataUrlToFile,
+    classifyMediaUrl,
     collectMedia,
     waitForCompletion,
   };

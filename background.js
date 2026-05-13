@@ -193,6 +193,11 @@ async function processOne(state, settings, index) {
     for (let i = 0; i < produced.length; i++) {
       const m = produced[i];
       try {
+        const check = D.canDownloadUrl(m.url);
+        if (!check.ok) {
+          await log(`Item #${index + 1}: skipped ${m.type || "media"} preview - ${check.reason}`);
+          continue;
+        }
         const filename = D.renderFilename(settings.filenamePattern, {
           type: m.type,
           index: index + 1,
@@ -450,6 +455,12 @@ async function handleDownloadMedia({ items, settings }) {
   for (let i = 0; i < items.length; i++) {
     const m = items[i];
     try {
+      const check = D.canDownloadUrl(m.url);
+      if (!check.ok) {
+        fail += 1;
+        await log(`Skipped ${m.type || "media"} preview - ${check.reason}`);
+        continue;
+      }
       const filename = D.renderFilename(st.filenamePattern, {
         type: m.type || "image",
         index: i + 1,

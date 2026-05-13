@@ -136,6 +136,22 @@ function escapeHtml(s) {
   }[c]));
 }
 
+function isDirectDownloadable(m) {
+  if (m && m.directDownloadable === true) return true;
+  return /^https?:\/\//i.test(String((m && m.url) || ""));
+}
+
+function shortUrl(url) {
+  const raw = String(url || "");
+  try {
+    const u = new URL(raw);
+    const path = u.pathname.split("/").filter(Boolean).slice(-2).join("/");
+    return `${u.hostname}/${path || ""}`.replace(/\/$/, "");
+  } catch (_) {
+    return raw.length > 80 ? raw.slice(0, 77) + "..." : raw;
+  }
+}
+
 // Compute the badge label/color from raw state fields.
 // Centralized so renderState (main view) and renderMiniView (mini window)
 // can both reuse it without duplicating the precedence rules.
@@ -253,15 +269,25 @@ function renderScannedMedia() {
   const grid = $("#mediaGrid");
   grid.innerHTML = "";
   UI.scannedMedia.forEach((m, i) => {
-    const id = `scan_${i}`;
     const cell = document.createElement("div");
     cell.className = "cell";
+    cell.dataset.direct = isDirectDownloadable(m) ? "true" : "false";
     const thumb = m.type === "video"
       ? `<video src="${m.url}" muted preload="metadata"></video>`
       : `<img src="${m.url}" alt="" />`;
+    const direct = isDirectDownloadable(m);
+    const status = direct ? "DIRECT PREVIEW" : ((m.scheme || "").toUpperCase() || "NOT DIRECT");
+    const reason = direct ? "Ready to download" : (m.reason || "Preview is not a direct file URL");
     cell.innerHTML = `
       ${thumb}
-      <label><input type="checkbox" data-sel="${i}" ${UI.scannedSelection.has(i) ? "checked" : ""}/> ${m.type.toUpperCase()}</label>
+      <label><input type="checkbox" data-sel="${i}" ${UI.scannedSelection.has(i) ? "checked" : ""} ${direct ? "" : "disabled"}/> ${m.type.toUpperCase()}</label>
+      <div class="meta">${escapeHtml(status)}</div>
+      <div class="meta" title="${escapeHtml(m.url)}">${escapeHtml(shortUrl(m.url))}</div>
+      <div class="meta">${escapeHtml(reason)}</div>
+      <div class="sn-media-actions">
+        <button class="sn-mini-btn" data-open="${i}" ${direct ? "" : "disabled"}>Open</button>
+        <button class="sn-mini-btn" data-copy="${i}">Copy URL</button>
+      </div>
       <div class="meta">${m.width || "?"}×${m.height || "?"}</div>
     `;
     grid.appendChild(cell);
@@ -271,6 +297,24 @@ function renderScannedMedia() {
       const i = Number(cb.dataset.sel);
       if (cb.checked) UI.scannedSelection.add(i);
       else UI.scannedSelection.delete(i);
+    });
+  });
+  grid.querySelectorAll("button[data-open]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const item = UI.scannedMedia[Number(btn.dataset.open)];
+      if (item && isDirectDownloadable(item)) chrome.tabs.create({ url: item.url });
+    });
+  });
+  grid.querySelectorAll("button[data-copy]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const item = UI.scannedMedia[Number(btn.dataset.copy)];
+      if (!item) return;
+      try {
+        await navigator.clipboard.writeText(item.url || "");
+        toast("URL copied");
+      } catch (_) {
+        toast("Copy failed");
+      }
     });
   });
 }
@@ -699,9 +743,13 @@ async function init() {
     const res = await send({ type: "SCAN_MEDIA_POPUP" });
     if (!res.ok) { toast(res.error || "Scan failed"); return; }
     UI.scannedMedia = res.media || [];
-    UI.scannedSelection = new Set(UI.scannedMedia.map((_, i) => i)); // select all by default
+    UI.scannedSelection = new Set(
+      UI.scannedMedia
+        .map((m, i) => isDirectDownloadable(m) ? i : -1)
+        .filter((i) => i >= 0)
+    );
     renderScannedMedia();
-    toast(`Found ${UI.scannedMedia.length} media`);
+    toast(`Found ${UI.scannedMedia.length} media, ${UI.scannedSelection.size} direct`);
   }));
   $("#btnDownloadSelected").addEventListener("click", withLock($("#btnDownloadSelected"), async () => {
     const items = Array.from(UI.scannedSelection).map((i) => UI.scannedMedia[i]).filter(Boolean);
@@ -714,8 +762,10 @@ async function init() {
   $("#btnDownloadAll").addEventListener("click", withLock($("#btnDownloadAll"), async () => {
     if (!UI.scannedMedia.length) { toast("Scan first"); return; }
     const settings = await getSettings();
-    const res = await send({ type: "DOWNLOAD_MEDIA", items: UI.scannedMedia, settings });
-    if (res.ok) toast(`Downloaded ${res.downloaded}/${UI.scannedMedia.length}`);
+    const directItems = UI.scannedMedia.filter(isDirectDownloadable);
+    if (!directItems.length) { toast("No direct preview URLs found"); return; }
+    const res = await send({ type: "DOWNLOAD_MEDIA", items: directItems, settings });
+    if (res.ok) toast(`Downloaded ${res.downloaded}/${directItems.length}`);
     else toast(res.error || "Download failed");
   }));
 
