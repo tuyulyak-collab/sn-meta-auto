@@ -93,7 +93,7 @@ function applyButtonStates() {
   if (stop) stop.disabled = !s.isRunning || UI.busyButtons.has(stop);
   if (resume) resume.disabled = !!s.isRunning || !s.isPaused || UI.busyButtons.has(resume);
   // Buttons without state-driven disabled rules: only block during in-flight call.
-  ["#btnReset", "#btnRetryFailed", "#btnScanMedia", "#btnDownloadSelected", "#btnDownloadAll"]
+  ["#btnReset", "#btnRetryFailed", "#btnScanMedia", "#btnDownloadSelected", "#btnDownloadAll", "#btnDownloadAllVideos"]
     .forEach((sel) => {
       const el = $(sel);
       if (el) el.disabled = UI.busyButtons.has(el);
@@ -136,13 +136,42 @@ function escapeHtml(s) {
   }[c]));
 }
 
-function isDirectDownloadable(m) {
+// Returns true when this media entry is downloadable through any of our
+// paths (http/https direct, data: direct, or blob: routed through the
+// content script's FETCH_BLOB_AS_DATA_URL handler). The old version of
+// this helper rejected blob: URLs which made the "download from preview"
+// feature useless for every Meta AI video preview — those are served as
+// <video src="blob:..."> almost without exception.
+function isDownloadable(m) {
   if (m && m.directDownloadable === true) return true;
-  return /^https?:\/\//i.test(String((m && m.url) || ""));
+  return /^(https?:|blob:|data:)/i.test(String((m && m.url) || ""));
+}
+
+function schemeBadge(m) {
+  const scheme = (m && m.scheme) || "";
+  if (scheme === "http" || scheme === "https") return "DIRECT";
+  if (scheme === "blob") return "BLOB";
+  if (scheme === "data") return "DATA";
+  return scheme.toUpperCase() || "UNKNOWN";
 }
 
 function shortUrl(url) {
   const raw = String(url || "");
+  if (/^blob:/i.test(raw)) {
+    // blob:https://www.meta.ai/<uuid> — just show the host + short hash so
+    // the cell footer stays readable instead of a 50-char UUID.
+    try {
+      const inner = raw.slice("blob:".length);
+      const u = new URL(inner);
+      return `blob:${u.hostname}/…`;
+    } catch (_) {
+      return raw.slice(0, 32) + "…";
+    }
+  }
+  if (/^data:/i.test(raw)) {
+    const m = /^data:([^;,]+)/.exec(raw);
+    return `data:${(m && m[1]) || "?"}`;
+  }
   try {
     const u = new URL(raw);
     const path = u.pathname.split("/").filter(Boolean).slice(-2).join("/");
@@ -150,6 +179,28 @@ function shortUrl(url) {
   } catch (_) {
     return raw.length > 80 ? raw.slice(0, 77) + "..." : raw;
   }
+}
+
+function mediaThumbHtml(m) {
+  // Popup runs in its own document — blob: URLs from meta.ai's page are
+  // scoped to that page's document and won't load in the popup. For video
+  // we therefore prefer the captured `poster` (an https:// CDN URL) and
+  // fall back to a placeholder card. For image we still inline the src
+  // because most image previews use http(s) URLs that load anywhere.
+  const url = String((m && m.url) || "");
+  if (m && m.type === "video") {
+    if (m.poster && /^https?:\/\//i.test(m.poster)) {
+      return `<img src="${escapeHtml(m.poster)}" alt="video poster" />`;
+    }
+    if (/^https?:\/\//i.test(url)) {
+      return `<video src="${escapeHtml(url)}" muted preload="metadata"></video>`;
+    }
+    return `<div class="sn-thumb-placeholder">VIDEO</div>`;
+  }
+  if (/^(https?:|data:)/i.test(url)) {
+    return `<img src="${escapeHtml(url)}" alt="" />`;
+  }
+  return `<div class="sn-thumb-placeholder">IMG</div>`;
 }
 
 // Compute the badge label/color from raw state fields.
@@ -271,24 +322,24 @@ function renderScannedMedia() {
   UI.scannedMedia.forEach((m, i) => {
     const cell = document.createElement("div");
     cell.className = "cell";
-    cell.dataset.direct = isDirectDownloadable(m) ? "true" : "false";
-    const thumb = m.type === "video"
-      ? `<video src="${m.url}" muted preload="metadata"></video>`
-      : `<img src="${m.url}" alt="" />`;
-    const direct = isDirectDownloadable(m);
-    const status = direct ? "DIRECT PREVIEW" : ((m.scheme || "").toUpperCase() || "NOT DIRECT");
-    const reason = direct ? "Ready to download" : (m.reason || "Preview is not a direct file URL");
+    const downloadable = isDownloadable(m);
+    cell.dataset.direct = downloadable ? "true" : "false";
+    cell.dataset.scheme = (m && m.scheme) || "";
+    const status = schemeBadge(m);
+    // For blob URLs we now route through the content script — keep the
+    // "Open in new tab" button disabled because chrome.tabs.create can't
+    // resolve a page-scoped blob URL, but DO allow the download checkbox.
+    const canOpenInTab = /^(https?:|data:)/i.test(String((m && m.url) || ""));
     cell.innerHTML = `
-      ${thumb}
-      <label><input type="checkbox" data-sel="${i}" ${UI.scannedSelection.has(i) ? "checked" : ""} ${direct ? "" : "disabled"}/> ${m.type.toUpperCase()}</label>
+      ${mediaThumbHtml(m)}
+      <label><input type="checkbox" data-sel="${i}" ${UI.scannedSelection.has(i) ? "checked" : ""} ${downloadable ? "" : "disabled"}/> ${escapeHtml(String(m.type || "media").toUpperCase())}</label>
       <div class="meta">${escapeHtml(status)}</div>
       <div class="meta" title="${escapeHtml(m.url)}">${escapeHtml(shortUrl(m.url))}</div>
-      <div class="meta">${escapeHtml(reason)}</div>
+      <div class="meta">${m.width || "?"}×${m.height || "?"}</div>
       <div class="sn-media-actions">
-        <button class="sn-mini-btn" data-open="${i}" ${direct ? "" : "disabled"}>Open</button>
+        <button class="sn-mini-btn" data-open="${i}" ${canOpenInTab ? "" : "disabled"}>Open</button>
         <button class="sn-mini-btn" data-copy="${i}">Copy URL</button>
       </div>
-      <div class="meta">${m.width || "?"}×${m.height || "?"}</div>
     `;
     grid.appendChild(cell);
   });
@@ -302,7 +353,10 @@ function renderScannedMedia() {
   grid.querySelectorAll("button[data-open]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const item = UI.scannedMedia[Number(btn.dataset.open)];
-      if (item && isDirectDownloadable(item)) chrome.tabs.create({ url: item.url });
+      if (!item) return;
+      if (/^(https?:|data:)/i.test(String(item.url || ""))) {
+        chrome.tabs.create({ url: item.url });
+      }
     });
   });
   grid.querySelectorAll("button[data-copy]").forEach((btn) => {
@@ -743,29 +797,55 @@ async function init() {
     const res = await send({ type: "SCAN_MEDIA_POPUP" });
     if (!res.ok) { toast(res.error || "Scan failed"); return; }
     UI.scannedMedia = res.media || [];
+    // Select every downloadable item (http/data/blob) by default — blob:
+    // previews are downloadable now via the content-script fetch path.
     UI.scannedSelection = new Set(
       UI.scannedMedia
-        .map((m, i) => isDirectDownloadable(m) ? i : -1)
+        .map((m, i) => isDownloadable(m) ? i : -1)
         .filter((i) => i >= 0)
     );
     renderScannedMedia();
-    toast(`Found ${UI.scannedMedia.length} media, ${UI.scannedSelection.size} direct`);
+    const videoCount = UI.scannedMedia.filter((m) => m && m.type === "video").length;
+    toast(`Found ${UI.scannedMedia.length} media (${videoCount} video, ${UI.scannedSelection.size} downloadable)`);
   }));
   $("#btnDownloadSelected").addEventListener("click", withLock($("#btnDownloadSelected"), async () => {
-    const items = Array.from(UI.scannedSelection).map((i) => UI.scannedMedia[i]).filter(Boolean);
-    if (!items.length) { toast("Select media first"); return; }
+    const items = Array.from(UI.scannedSelection)
+      .map((i) => UI.scannedMedia[i])
+      .filter((m) => m && isDownloadable(m));
+    if (!items.length) { toast("Select downloadable media first"); return; }
     const settings = await getSettings();
     const res = await send({ type: "DOWNLOAD_MEDIA", items, settings });
-    if (res.ok) toast(`Downloaded ${res.downloaded}/${items.length}`);
+    if (res.ok) toast(`Downloaded ${res.downloaded}/${items.length}${res.failed ? ` (${res.failed} failed)` : ""}`);
     else toast(res.error || "Download failed");
   }));
   $("#btnDownloadAll").addEventListener("click", withLock($("#btnDownloadAll"), async () => {
     if (!UI.scannedMedia.length) { toast("Scan first"); return; }
     const settings = await getSettings();
-    const directItems = UI.scannedMedia.filter(isDirectDownloadable);
-    if (!directItems.length) { toast("No direct preview URLs found"); return; }
-    const res = await send({ type: "DOWNLOAD_MEDIA", items: directItems, settings });
-    if (res.ok) toast(`Downloaded ${res.downloaded}/${directItems.length}`);
+    const items = UI.scannedMedia.filter(isDownloadable);
+    if (!items.length) { toast("No downloadable previews found"); return; }
+    const res = await send({ type: "DOWNLOAD_MEDIA", items, settings });
+    if (res.ok) toast(`Downloaded ${res.downloaded}/${items.length}${res.failed ? ` (${res.failed} failed)` : ""}`);
+    else toast(res.error || "Download failed");
+  }));
+
+  // "Download All Videos" — one-click shortcut for the user's primary
+  // use case (batch-saving every video preview on screen). Auto-scans
+  // when the grid is empty so the user doesn't have to click Scan first.
+  $("#btnDownloadAllVideos").addEventListener("click", withLock($("#btnDownloadAllVideos"), async () => {
+    if (!UI.scannedMedia.length) {
+      const scan = await send({ type: "SCAN_MEDIA_POPUP" });
+      if (!scan.ok) { toast(scan.error || "Scan failed"); return; }
+      UI.scannedMedia = scan.media || [];
+      UI.scannedSelection = new Set(
+        UI.scannedMedia.map((m, i) => isDownloadable(m) ? i : -1).filter((i) => i >= 0)
+      );
+      renderScannedMedia();
+    }
+    const videos = UI.scannedMedia.filter((m) => m && m.type === "video" && isDownloadable(m));
+    if (!videos.length) { toast("No downloadable video previews found"); return; }
+    const settings = await getSettings();
+    const res = await send({ type: "DOWNLOAD_MEDIA", items: videos, settings });
+    if (res.ok) toast(`Downloaded ${res.downloaded}/${videos.length} videos${res.failed ? ` (${res.failed} failed)` : ""}`);
     else toast(res.error || "Download failed");
   }));
 

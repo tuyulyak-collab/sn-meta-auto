@@ -336,34 +336,56 @@
     return new File([arr], filename || "upload", { type: mime });
   }
 
+  // classifyMediaUrl reports whether a URL is downloadable and which path
+  // we'll take. http/https/data go straight through chrome.downloads from
+  // the service worker; blob URLs are document-scoped so they must be
+  // fetched from the content script first (which then hands a data URL
+  // back to the SW). The legacy `directDownloadable` flag now means
+  // "downloadable by any of our paths" — NOT "direct HTTP only".
   function classifyMediaUrl(url) {
     const raw = String(url || "").trim();
-    if (!raw) return { scheme: "", directDownloadable: false, reason: "empty_url" };
+    if (!raw) return { scheme: "", directDownloadable: false, needsContentScript: false, reason: "empty_url" };
     if (/^https?:\/\//i.test(raw)) {
-      return { scheme: raw.split(":", 1)[0].toLowerCase(), directDownloadable: true, reason: "direct_http" };
+      return { scheme: raw.split(":", 1)[0].toLowerCase(), directDownloadable: true, needsContentScript: false, reason: "direct_http" };
     }
     if (/^blob:/i.test(raw)) {
-      return { scheme: "blob", directDownloadable: false, reason: "blob_url_not_downloadable_from_extension" };
+      return { scheme: "blob", directDownloadable: true, needsContentScript: true, reason: "blob_via_content_script" };
     }
     if (/^data:/i.test(raw)) {
-      return { scheme: "data", directDownloadable: false, reason: "data_url_skipped" };
+      return { scheme: "data", directDownloadable: true, needsContentScript: false, reason: "data_url" };
     }
-    return { scheme: "other", directDownloadable: false, reason: "unsupported_url_scheme" };
+    return { scheme: "other", directDownloadable: false, needsContentScript: false, reason: "unsupported_url_scheme" };
   }
 
+  // pickMediaUrl prefers a stable HTTP URL when present (best for naming
+  // and CDN caching) but falls back to blob/data so blob-only previews
+  // (the common case for Meta AI's video player) are still capturable.
   function pickMediaUrl(node) {
     if (!node) return "";
-    const directAttrs = ["currentSrc", "src", "href", "poster"];
-    for (const attr of directAttrs) {
-      const val = node[attr] || "";
-      if (val && classifyMediaUrl(val).directDownloadable) return val;
+    const candidates = [];
+    function addCandidate(val) {
+      if (!val) return;
+      candidates.push(String(val));
     }
-    if (node.querySelector) {
-      const source = node.querySelector("source[src]");
-      if (source) return pickMediaUrl(source);
+    addCandidate(node.currentSrc);
+    addCandidate(node.src);
+    addCandidate(node.href);
+    if (node.querySelectorAll) {
+      node.querySelectorAll("source[src]").forEach((s) => addCandidate(s.src || s.getAttribute("src")));
     }
-    const anyVal = directAttrs.map((attr) => node[attr] || "").find(Boolean);
-    if (anyVal) return anyVal;
+    // poster is intentionally last — it's the still frame, not the video.
+    addCandidate(node.poster);
+    // Prefer the first http/https candidate over blob/data so renderFilename
+    // can derive a useful extension from the URL path.
+    const http = candidates.find((c) => /^https?:\/\//i.test(c));
+    if (http) return http;
+    return candidates.find(Boolean) || "";
+  }
+
+  function pickPosterUrl(node) {
+    if (!node) return "";
+    const p = node.poster || "";
+    if (p && /^https?:\/\//i.test(p)) return p;
     return "";
   }
 
@@ -396,15 +418,21 @@
       let w = 0, h = 0;
       try { const r = node.getBoundingClientRect(); w = Math.round(r.width); h = Math.round(r.height); } catch (_) {}
       const info = classifyMediaUrl(url);
+      // For videos with a blob:/data: src, capture the HTTP poster so the
+      // popup grid (a separate document) can still render a thumbnail —
+      // blob URLs are scoped to the page document and won't load in popup.
+      const poster = type === "video" ? pickPosterUrl(node) : "";
       out.push({
         type,
         url,
+        poster,
         width: w,
         height: h,
         source: source || "",
         label: mediaNameFromNode(node),
         scheme: info.scheme,
         directDownloadable: info.directDownloadable,
+        needsContentScript: info.needsContentScript,
         reason: info.reason,
       });
     }

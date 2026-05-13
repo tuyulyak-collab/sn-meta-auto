@@ -114,6 +114,36 @@ async function getMetaTabOrFail() {
   return tab;
 }
 
+// Centralized download dispatcher. Hides the difference between URLs the
+// service worker can fetch directly (http/https/data) and blob: URLs that
+// must be resolved by the content script first. Used by both the auto-
+// download path inside processOne and the manual handleDownloadMedia
+// path so the two never drift out of sync.
+//
+// Returns the final URL string to hand to chrome.downloads.download and a
+// `mimeType` hint that lets renderFilename pick a sensible extension when
+// the source URL is a blob/data: URL with no path-based extension.
+async function resolveDownloadUrl(url, tabId) {
+  const raw = String(url || "");
+  const check = D.canDownloadUrl(raw);
+  if (!check.ok) throw new Error(check.reason);
+  if (!check.needsContentScript) return { url: raw, mimeType: "" };
+  // blob: URL — hand off to the content script in the Meta AI tab so it
+  // can fetch the blob (blob URLs are document-scoped) and return a data
+  // URL that the SW can hand to chrome.downloads.download.
+  let targetTabId = tabId;
+  if (!targetTabId) {
+    const tab = await findMetaTab();
+    if (!tab) throw new Error("Meta AI tab not found. Open https://www.meta.ai/ first.");
+    const okInject = await ensureContentScript(tab.id);
+    if (!okInject) throw new Error("Content script not available in meta.ai tab.");
+    targetTabId = tab.id;
+  }
+  const res = await sendToTab(targetTabId, { type: "FETCH_BLOB_AS_DATA_URL", url: raw });
+  if (!res || !res.ok) throw new Error((res && res.error) || "Failed to fetch blob");
+  return { url: res.dataUrl, mimeType: res.mimeType || "" };
+}
+
 async function processOne(state, settings, index) {
   const item = state.queue[index];
   if (!item) return { ok: false, error: "No item at index" };
@@ -188,23 +218,22 @@ async function processOne(state, settings, index) {
   const produced = (wait.payload && wait.payload.media) || [];
   await log(`Item #${index + 1}: result detected (${produced.length} media)`);
 
-  // 5) Auto-download if enabled
+  // 5) Auto-download if enabled. Uses resolveDownloadUrl so blob: previews
+  // (the common case for video output) get fetched via the content script
+  // first; http/data URLs pass through unchanged.
   if (settings.autoDownload && produced.length) {
     for (let i = 0; i < produced.length; i++) {
       const m = produced[i];
       try {
-        const check = D.canDownloadUrl(m.url);
-        if (!check.ok) {
-          await log(`Item #${index + 1}: skipped ${m.type || "media"} preview - ${check.reason}`);
-          continue;
-        }
+        const resolved = await resolveDownloadUrl(m.url, tab.id);
         const filename = D.renderFilename(settings.filenamePattern, {
           type: m.type,
           index: index + 1,
           url: m.url,
+          mimeType: resolved.mimeType,
         });
         const path = D.buildFullPath(settings.subfolder, filename);
-        await D.downloadOne({ url: m.url, filename: path });
+        await D.downloadOne({ url: resolved.url, filename: path });
         await log(`Item #${index + 1}: downloaded ${path}`);
       } catch (e) {
         await log(`Item #${index + 1}: download failed — ${(e && e.message) || e}`);
@@ -452,22 +481,26 @@ async function handleClearHistory() {
 async function handleDownloadMedia({ items, settings }) {
   const st = settings || (await S.getSettings());
   let ok = 0, fail = 0;
+  // Resolve the Meta AI tab once so blob: URLs reuse the same content
+  // script connection instead of re-querying tabs.query per item.
+  const tab = await findMetaTab();
+  let tabId = null;
+  if (tab) {
+    const okInject = await ensureContentScript(tab.id);
+    if (okInject) tabId = tab.id;
+  }
   for (let i = 0; i < items.length; i++) {
     const m = items[i];
     try {
-      const check = D.canDownloadUrl(m.url);
-      if (!check.ok) {
-        fail += 1;
-        await log(`Skipped ${m.type || "media"} preview - ${check.reason}`);
-        continue;
-      }
+      const resolved = await resolveDownloadUrl(m.url, tabId);
       const filename = D.renderFilename(st.filenamePattern, {
         type: m.type || "image",
         index: i + 1,
         url: m.url,
+        mimeType: resolved.mimeType,
       });
       const path = D.buildFullPath(st.subfolder, filename);
-      await D.downloadOne({ url: m.url, filename: path });
+      await D.downloadOne({ url: resolved.url, filename: path });
       ok += 1;
       await log(`Downloaded ${path}`);
     } catch (e) {
