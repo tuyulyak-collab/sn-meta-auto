@@ -58,6 +58,43 @@
     }
   }
 
+  // Service workers can't resolve page-scoped blob: URLs (and `data:` URLs
+  // larger than ~2MB stress chrome.runtime.sendMessage size limits when
+  // routed through the SW). The content script lives in the same document
+  // as the page, so it CAN fetch blob URLs — we read the blob, turn it
+  // into a base64 data URL, and hand it back to the background so the
+  // existing chrome.downloads.download pipeline (filename pattern +
+  // subfolder) works unchanged.
+  async function handleFetchBlobAsDataUrl(msg) {
+    const url = String((msg && msg.url) || "");
+    if (!url) return { ok: false, error: "missing url" };
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return { ok: false, error: `fetch failed: HTTP ${res.status}` };
+      const blob = await res.blob();
+      if (!blob || !blob.size) {
+        // MediaSource-backed blob URLs (HLS / MSE streams) typically yield
+        // a zero-byte response here. The caller will surface this so the
+        // user sees a clear "this preview is a stream, not a file" reason.
+        return { ok: false, error: "Blob is empty (likely a MediaSource stream — not a downloadable file)." };
+      }
+      const dataUrl = await new Promise((resolve, reject) => {
+        const fr = new FileReader();
+        fr.onerror = () => reject(new Error("FileReader failed"));
+        fr.onload = () => resolve(String(fr.result || ""));
+        fr.readAsDataURL(blob);
+      });
+      return {
+        ok: true,
+        dataUrl,
+        mimeType: blob.type || "",
+        size: blob.size,
+      };
+    } catch (e) {
+      return { ok: false, error: String((e && e.message) || e) };
+    }
+  }
+
   async function handlePing() {
     return {
       ok: true,
@@ -74,6 +111,7 @@
     SCAN_MEDIA: handleScanMedia,
     WAIT_COMPLETION: handleWaitCompletion,
     UPLOAD_IMAGE: handleUploadImage,
+    FETCH_BLOB_AS_DATA_URL: handleFetchBlobAsDataUrl,
   };
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

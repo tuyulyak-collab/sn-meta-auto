@@ -192,9 +192,15 @@
       <h2 class="sn-section-title">6. Tools Tambahan</h2>
       <div class="sn-row">
         <button id="btnScanMedia" class="sn-btn sn-btn-secondary">Scan Media</button>
-        <button id="btnDownloadSelected" class="sn-btn sn-btn-primary">Download Selected Preview</button>
-        <button id="btnDownloadAll" class="sn-btn sn-btn-success">Download All Direct</button>
+        <button id="btnDownloadSelected" class="sn-btn sn-btn-primary">Download Selected</button>
+        <button id="btnDownloadAll" class="sn-btn sn-btn-success">Download All</button>
+        <button id="btnDownloadAllVideos" class="sn-btn sn-btn-primary">Download All Videos</button>
       </div>
+      <p class="sn-hint">
+        Scan first, then pick from the grid below. Video previews now download
+        directly even when Meta AI serves them as a blob URL (the extension
+        fetches the underlying file via the content script).
+      </p>
       <div id="mediaGrid" class="sn-media-grid"></div>
     </section>
 

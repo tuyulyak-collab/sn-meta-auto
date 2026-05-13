@@ -13,7 +13,7 @@ Chrome Extension (Manifest V3) untuk **batch prompt automation** di [Meta AI](ht
 - **Start / Stop / Resume / Reset** queue. Resume melanjutkan dari item belum selesai.
 - **Robust DOM detection**: `findPromptInput()` + `findGenerateButton()` menangani `textarea`, `contenteditable`, `role=textbox`, Shadow DOM, dsb.
 - **MutationObserver completion detection** — tidak mengandalkan fixed wait.
-- **Scan Media** + **Download Selected / All** dengan pola `sn_meta_{type}_{index}_{date}` ke subfolder `SN_Meta_Auto/`.
+- **Scan Media** + **Download Selected / All / All Videos** dengan pola `sn_meta_{type}_{index}_{date}` ke subfolder `SN_Meta_Auto/`. Video preview yang disajikan Meta AI sebagai `blob:` URL pun bisa di-download — extension fetch blob lewat content script lalu kirim sebagai data URL ke background untuk disimpan.
 - **Queue table** dengan per-item: Retry, Skip, Copy prompt, Remove.
 - **Log panel** (maks 50 log terakhir) + **History** batch.
 - **Error handling**: page not detected, prompt field not found, timeout, download failed, dsb. Toggle *Stop on error* atau lanjut otomatis (tandai `failed`).
@@ -60,7 +60,17 @@ python3 tools/generate_icons.py
 6. Klik **Start**. Pantau progress di **Queue** dan **Logs**.
 7. Kalau ingin berhenti sementara → **Stop**. Resume → lanjut dari item berikutnya.
 8. Klik **Reset Queue** untuk mulai dari nol.
-9. **Tools Tambahan** → **Scan Media** untuk mengumpulkan semua image/video yang terlihat di halaman, lalu **Download Selected** / **Download All**.
+9. **Tools Tambahan** → **Scan Media** untuk mengumpulkan semua image/video yang terlihat di halaman, lalu **Download Selected** / **Download All** / **Download All Videos**. Tombol **Download All Videos** otomatis scan + filter ke type video saja (cocok untuk batch save semua hasil VIDEO atau IMAGE TO VIDEO).
+
+### Catatan tentang video preview
+
+Meta AI menyajikan video hasil generasi pada `<video src="blob:...">`. URL blob ini scoped ke document Meta AI (bukan ke service worker extension), jadi extension melakukan ini secara internal:
+
+1. Content script (yang berjalan di tab Meta AI) menerima request `FETCH_BLOB_AS_DATA_URL`.
+2. Content script `fetch(blob)` untuk mendapatkan bytes-nya, lalu encode jadi base64 data URL.
+3. Background service worker menerima data URL dan memanggil `chrome.downloads.download` dengan filename pattern + subfolder seperti biasa.
+
+Untuk video yang disajikan via **MediaSource (MSE/HLS)**, langkah 2 akan mengembalikan blob kosong — dalam kasus ini download akan gagal dengan pesan jelas, dan user perlu menggunakan video tersebut dari halaman Meta AI secara manual.
 
 ### Filename pattern
 
